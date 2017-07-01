@@ -685,7 +685,7 @@ public:
     }
     parse_analyze_block(line_block);
     reorder(blocks());
-    return good() && validate();
+    return good() && validate(strict_parsing());
   }
 
   // </editor-fold>
@@ -879,9 +879,10 @@ public:
    * instance is ok. If no address width type is set,
    * it sets this type implicitly to the minimum possible
    * address type (means S1/S2/S3).
+   * @param bool strict =true
    * @return bool
    */
-  bool validate()
+  bool validate(bool strict=true)
   {
     if(!good()) return false;
 
@@ -896,14 +897,19 @@ public:
       if(type_ == type_undefined) {
         type_ = (record_type_type)type;
       } else if(type_ < type) {
-        return error(e_validate_record_type_to_small);
+        if(strict) {
+          return error(e_validate_record_type_to_small);
+        } else {
+          type_ = record_type_type(type);
+        }
       }
     }
     // Variable checks
     {
       if((type_ < 1) || (type_ > 3)) {
         return error(e_validate_record_type_to_small);
-      } else if(blocks_.empty()) {
+      }
+      if(blocks_.empty()) {
         return error(e_validate_no_binary_data);
       }
     }
@@ -1521,7 +1527,7 @@ private:
       for(auto e: lines) {
         if(e.type < 4) {
           // Data lines (header is out)
-          if(e.type != type) {
+          if((e.type != type) && strict_parsing()) {
             return error(e_parse_mixed_data_line_types);
           }
           if((!blocks_.empty()) && (e.address == (blocks_.back().sadr() + blocks_.back().size()))) {
@@ -1550,11 +1556,11 @@ private:
         } else {
           // Start addresses S7/S8/S9
           // S<0, S4, S>9 already filtered out, S0/1/2/3 and S5/6 handled above --> S7/8/9 left.
-          if(have_start_address) {
+          if(have_start_address && strict_parsing()) {
             return error(e_parse_duplicate_start_address);
           }
           have_start_address = true;
-          if(e.type != 10-type) error(e_parse_startaddress_vs_data_type_mismatch);
+          if((e.type != 10-type) && strict_parsing()) error(e_parse_startaddress_vs_data_type_mismatch);
           start_address_ = e.address;
         }
       }
