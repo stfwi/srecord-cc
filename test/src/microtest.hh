@@ -32,7 +32,6 @@
 #ifndef SW_UTEST_HH
 #define SW_UTEST_HH
 
-// <editor-fold desc="preprocessor" defaultstate="collapsed">
 #include <sstream>
 #include <iostream>
 #include <string>
@@ -70,11 +69,9 @@
   #define UTEST_TMPDIR ""
 #endif
 
-// </editor-fold>
 
 namespace sw { namespace utest {
 
-// <editor-fold desc="std common code" defaultstate="collapsed">
 #ifdef __MSC_VER
 // fix of the century joke
 namespace std { template <typename T> bool isnan(T d) { return !!_isnan(d); } }
@@ -82,8 +79,7 @@ namespace std { template <typename T> bool isnan(T d) { return !!_isnan(d); } }
 
 namespace detail {
 
-  // <editor-fold desc="buildinfo" defaultstate="collapsed">
-  template <typename T=void>
+    template <typename T=void>
   struct buildinfo
   {
 
@@ -184,9 +180,7 @@ namespace detail {
       #endif
     }
   };
-  // </editor-fold>
 
-  // <editor-fold desc="tmpfile" defaultstate="collapsed">
   template <typename T=void>
   class tmp_file
   {
@@ -286,15 +280,12 @@ namespace detail {
     tmp_file(const tmp_file&) {}
     std::string file_;
   };
-  // </editor-fold>
 
 }
 
 typedef detail::buildinfo<> buildinfo;
 typedef detail::tmp_file<> tmp_file;
-// </editor-fold>
 
-// <editor-fold desc="test_ macros" defaultstate="collapsed">
 
 #define test_fail(...)    (::sw::utest::test::fail   (__FILE__, __LINE__, __VA_ARGS__))
 
@@ -381,9 +372,7 @@ typedef detail::tmp_file<> tmp_file;
               #ARG " | Unexpected exception") )); \
           }
 
-// </editor-fold>
 
-// <editor-fold desc="wrappers for platform dependencies" defaultstate="collapsed">
 /**
  * isnan forward for platform trouble prevention
  * @param typename T n
@@ -403,9 +392,7 @@ template <typename T>
 static T round(T v, T dim)
 { return std::round((double)v / dim) * dim; }
 
-// </editor-fold>
 
-// <editor-fold desc="random" defaultstate="collapsed">
 namespace random_generators {
 
   /**
@@ -548,9 +535,7 @@ namespace random_generators {
 template <typename R, typename ...Args>
 static R random(Args ...args)
 { R r; random_generators::rnd(r, std::forward<Args>(args)...); return std::forward<R>(r); }
-// </editor-fold>
 
-// <editor-fold desc="class utest" defaultstate="collapsed">
 namespace detail {
 
   template <typename=void>
@@ -558,7 +543,6 @@ namespace detail {
   {
   public:
 
-    // <editor-fold desc="class var getters / setters" defaultstate="collapsed">
     /**
      * Returns the number of failed checks
      * @return unsigned long
@@ -586,9 +570,7 @@ namespace detail {
     static void ansi_colors(bool enable) noexcept
     { ansi_colors_ = enable;  }
 
-    // </editor-fold>
 
-    // <editor-fold desc="pass, fail, comment, summary, buildinfo" defaultstate="collapsed">
     /**
      * Register a succeeded expectation, increases test counter, prints message.
      * @param const std::string& file
@@ -686,11 +668,9 @@ namespace detail {
     static void omit_pass_log(bool switch_off)
     { omit_passes_ = switch_off; }
 
-    // </editor-fold>
 
   private:
 
-    // <editor-fold desc="stream output" defaultstate="collapsed">
     enum {osout_pass=0,osout_fail,osout_warn,osout_note,osout_info };
 
     template <typename ...Args>
@@ -738,9 +718,7 @@ namespace detail {
     template <typename T>
     static void push_stream(std::ostream& os, T&& v)
     { os << v; }
-    // </editor-fold>
 
-    // <editor-fold desc="variables" defaultstate="collapsed">
     static std::atomic<unsigned long> num_checks_;
     static std::atomic<unsigned long> num_fails_;
     static std::atomic<unsigned long> num_warns_;
@@ -748,11 +726,9 @@ namespace detail {
     static std::mutex iolock_;
     static bool ansi_colors_;
     static bool omit_passes_;
-    // </editor-fold>
 
   };
 
-  // <editor-fold desc="statics init" defaultstate="collapsed">
   template <typename T> std::atomic<unsigned long> utest<T>::num_checks_(0);
   template <typename T> std::atomic<unsigned long> utest<T>::num_fails_(0);
   template <typename T> std::atomic<unsigned long> utest<T>::num_warns_(0);
@@ -760,14 +736,11 @@ namespace detail {
   template <typename T> std::mutex utest<T>::iolock_;
   template <typename T> bool utest<T>::ansi_colors_(!!(WITH_ANSI_COLORS));
   template <typename T> bool utest<T>::omit_passes_(!!(WITHOUT_PASS_LOGS));
-  // </editor-fold>
 
 }
 
 typedef detail::utest<> test;
-// </editor-fold>
 
-// <editor-fold desc="tmpdir" defaultstate="collapsed">
 #ifndef WITHOUT_TMPDIR
   namespace detail {
 
@@ -871,7 +844,6 @@ typedef detail::utest<> test;
   #define test_tmpdir()        (::sw::utest::tmpdir::path())
   #define test_tmpdir_remove() { ::sw::utest::tmpdir::remove(); }
 #endif
-// </editor-fold>
 
 }}
 #endif

@@ -15,9 +15,14 @@
 *.a
 *.lib
 *.exe
+*.elf
 *.out
 *.app
 .project
 .metadata
+.vscode
 nbproject
 /test/bin
+/cli/*.exe
+/cli/srecord
+/cli/dev.cc

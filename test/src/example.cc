@@ -34,7 +34,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * -----------------------------------------------------------------------------
  */
-// <editor-fold defaultstate="collapsed" desc="preprocessor">
 #define WITH_SRECORD_DEBUG
 #include <sw/srecord.hh>
 #include <iostream>
@@ -44,7 +43,6 @@
 #define print_error(X) { std::cerr << "[error] " << X << std::endl; std::cerr.flush(); }
 #define print_verbose(X) { if(verbosity > 0)  { std::cerr << "[verb1] " << X << std::endl; std::cerr.flush(); } }
 #define print_verbose1(X) { if(verbosity > 1) { std::cerr << "[verb2] " << X << std::endl; std::cerr.flush(); } }
-// </editor-fold>
 
 using namespace std;
 using sw::srecord;

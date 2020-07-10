@@ -38,7 +38,6 @@
 #ifndef SW_SRECORD_HH
 #define	SW_SRECORD_HH
 
-// <editor-fold defaultstate="collapsed" desc="preprocessor">
 #include <iostream>
 #include <string>
 #include <sstream>
@@ -46,6 +45,7 @@
 #include <algorithm>
 #include <vector>
 #include <deque>
+#include <type_traits>
 
 #ifdef WITH_SRECORD_DEBUG
   #undef SRECORD_DEBUG
@@ -53,7 +53,6 @@
 #else
   #define SRECORD_DEBUG(X)
 #endif
-// </editor-fold>
 
 namespace sw { namespace detail {
 
@@ -62,7 +61,6 @@ class basic_srecord
 {
 public:
 
-  // <editor-fold defaultstate="collapsed" desc="types">
   /**
    * Binary value of each data word. Should be unsigned char
    * or char / uint8_t/int8_t.
@@ -84,7 +82,7 @@ public:
   /**
    * The type for addresses.
    */
-  typedef unsigned long address_type;
+  typedef unsigned long long address_type;
 
   /**
    * The type for storing the "type" of a record,
@@ -124,9 +122,6 @@ public:
     e_validate_overlapping_blocks
   } error_type;
 
-  // </editor-fold>
-
-  // <editor-fold defaultstate="collapsed" desc="block_type">
   /**
    * Type for each connected data block. Blocks have
    * a start address and binary data with a defined
@@ -376,11 +371,8 @@ public:
    */
   typedef std::vector<block_type> block_container_type;
 
-   // </editor-fold>
-
 private:
 
-  // <editor-fold defaultstate="collapsed" desc="private types">
   /**
    * Type for each connected data block.
    */
@@ -398,11 +390,8 @@ private:
    */
   typedef std::deque<line_type> line_container_type;
 
-  // </editor-fold>
-
 public:
 
-  // <editor-fold defaultstate="collapsed" desc="c'tors/d'tor">
   /**
    * c'tor (default)
    */
@@ -425,11 +414,8 @@ public:
   ~basic_srecord()
   { clear(); }
 
-  // </editor-fold>
-
 public:
 
-  // <editor-fold defaultstate="collapsed" desc="getters/setters/clear">
   /**
    * Clears all instance variables, resets the error.
    */
@@ -619,18 +605,15 @@ public:
   inline unsigned long error_address() const
   { return error_address_; }
 
-  // </editor-fold>
-
 public:
 
-  // <editor-fold defaultstate="collapsed" desc="parse">
   /**
    * Parse a string.
    * @param const std::string& data
    * @return bool
    */
   inline bool parse(const std::string& data)
-  { return parse(std::istringstream(data)); }
+  { std::istringstream ss(data); return parse(ss); }
 
   /**
    * Parse a string.
@@ -638,7 +621,7 @@ public:
    * @return bool
    */
   inline bool parse(std::string&& data)
-  { std::istringstream ss(std::move(data)) ; return parse(ss); }
+  { std::istringstream ss(std::move(data)); return parse(ss); }
 
   /**
    * Parses an input stream.
@@ -688,25 +671,24 @@ public:
     return good() && validate(strict_parsing());
   }
 
-  // </editor-fold>
-
-  // <editor-fold defaultstate="collapsed" desc="compose">
   /**
-   * Recomposes a srec file. Returns success
+   * Recomposes a srec file. Returns success.
    *
-   * @param record_type_type type=0
    * @param std::ostream& os
    * @param size_type data_line_length
    * @return bool
    */
-  bool compose(std::ostream& os, size_type data_line_length=0)
+  bool compose(std::ostream& os, size_type line_length=0)
   {
-    if(!good() || !validate()) {
-      return false;
-    } else {
-      size_type min_data_line_length = (2+(2*(1+type()))+8+2); // Sx+len+(adr)+((min 4 data bytes ))+cksum
-      if(data_line_length < min_data_line_length) data_line_length = min_data_line_length;
-      if(data_line_length > 64) data_line_length = 64;
+    if(!good() || !validate()) return false;
+    size_type data_line_length = 64;
+    {
+      const size_type frame_size = (2+2+(2*(1+type()))+2); // Sx+len+(adr)+(no data bytes)+cksum
+      const size_type min_line_length = (frame_size+8);  // frame + min 4 data bytes.
+      if(line_length == 0) line_length = frame_size + 64;
+      else if(line_length > 92) line_length = 92;
+      else if(line_length < min_line_length) line_length = min_line_length;
+      data_line_length = (line_length-frame_size)/2;
     }
     // Header
     {
@@ -725,9 +707,9 @@ public:
     unsigned long line_data_count = 0;
     {
       record_type_type type = type_;
-      for(block_type& block: blocks_) {
+      for(const block_type& block: blocks_) {
         std::deque<typename data_type::value_type> bin;
-        data_type& bytes = block.bytes();
+        const data_type& bytes = block.bytes();
         typename data_type::size_type sz = bytes.size();
         address_type address = block.sadr();
         unsigned i = 0;
@@ -795,10 +777,20 @@ public:
   }
 
   /**
+   * Recomposes a srec file to a string. Returns an empty
+   * string on error.
+   *
+   * @param size_type data_line_length
+   * @return std::string
+   */
+  std::string compose(size_type line_length=0)
+  { std::stringstream ss; return compose(ss, line_length) ? (ss.str()) : (std::string()); }
+
+  /**
    * Human readable dump to a defined ostream.
    * @param std::ostream&
    */
-  inline void dump(std::ostream& os)
+  inline void dump(std::ostream& os) const
   {
     os << "srec {" << std::endl;
     os << " data type: ";
@@ -830,9 +822,12 @@ public:
     os << "}" << std::endl;
   }
 
-  // </editor-fold>
-
-  // <editor-fold defaultstate="collapsed" desc="load">
+  /**
+   * Human readable string dump.
+   * @return std::string
+   */
+  inline std::string dump() const
+  { std::stringstream ss; dump(ss); return ss.str(); }
 
   /**
    * Loads an S-record file (.srec/.s19/.s28/.s37 ...).
@@ -871,9 +866,7 @@ public:
     if((!fs.good()) || (!srec.parse(fs))) return false;
     return fs.eof();
   }
-  // </editor-fold>
 
-  // <editor-fold defaultstate="collapsed" desc="validate">
   /**
    * Checks if the current "image" saved in the
    * instance is ok. If no address width type is set,
@@ -889,11 +882,10 @@ public:
     // Check/set address type
     {
       unsigned type = 1;
-      address_type adr = 0;
       for(block_type& block: blocks_) {
-        adr |= block.eadr(); // -1 ? --> no
+        if(block.eadr() > 0x00ffffffu) { type = 3; break; }
+        if(block.eadr() > 0x0000ffffu) { type = 2;        }
       }
-      for(adr >>= 16; adr; adr >>= 8) ++type;
       if(type_ == type_undefined) {
         type_ = (record_type_type)type;
       } else if(type_ < type) {
@@ -928,9 +920,7 @@ public:
     }
     return true;
   }
-  // </editor-fold>
 
-  // <editor-fold defaultstate="collapsed" desc="instance block operations">
   /**
    * Returns an ordered container of blocks that are in the
    * specified range.
@@ -1039,7 +1029,7 @@ public:
   /**
    * Copies the contents of a given block to the appropriate
    * position. Extends the instance address range if needed,
-   * overwrites existing blocks. Might merge and rearrange
+   * overwrites existing blocks. Might merge and re-arrange
    * blocks, means drop pointers or references to blocks
    * after using this method.
    *
@@ -1051,7 +1041,7 @@ public:
   /**
    * Copies the contents of given byte data to the appropriate
    * address. Extends the instance address range if needed,
-   * overwrites existing blocks. Might merge and rearrange
+   * overwrites existing blocks. Might merge and re-arrange
    * blocks, means drop pointers or references to blocks
    * after using this method.
    * @param address_type address
@@ -1073,6 +1063,27 @@ public:
   { block_type blk(address, data); set_range(blk); }
 
   /**
+   * Copies the contents of given byte data to the appropriate
+   * address. Extends the instance address range if needed,
+   * overwrites existing blocks. Might merge and re-arrange
+   * blocks, means drop pointers or references to blocks
+   * after using this method.
+   * @tparam typename Container
+   * @param address_type address
+   * @param const Container& data
+   */
+  template<typename Container>
+  inline typename std::enable_if<std::is_same<typename Container::value_type, value_type>::value,void>
+  ::type set_range(address_type address, const Container& data)
+  {
+    if(data.empty()) return;
+    auto bytes = data_type();
+    bytes.reserve(data.size());
+    for(auto& e:data) bytes.push_back(e);
+    set_range(std::move(bytes));
+  }
+
+  /**
    * Removes an address range from the srecord. Might split and
    * rearrange blocks, means you should drop pointers or references
    * to blocks after using this method.
@@ -1081,7 +1092,7 @@ public:
    */
   void remove_range(address_type start_address, address_type end_address)
   {
-    if((start_address >= end_address)|| blocks().empty()) return;
+    if((start_address >= end_address) || blocks().empty()) return;
     size_type i_first = blocks().size();
     size_type i;
     for(i = 0; i < blocks().size(); ++i) {
@@ -1101,14 +1112,19 @@ public:
     }
     if(i_first == i_last) {
       i = i_first;
-      if((blocks()[i].sadr() == start_address) || (blocks()[i].eadr() == end_address)) {
-        // If aligned to begin or end we can just shrink the block
-        shrink(blocks()[i_first], start_address, end_address);
+      if(blocks()[i].sadr() == start_address) {
+        // Aligned to begin, just shrink the block
+        shrink_to(blocks()[i], end_address, blocks()[i].eadr());
+        if(blocks()[i].empty()) remove_empty_blocks();
+      } else if(blocks()[i].eadr() == end_address) {
+        // Aligned to end, also shrink
+        shrink_to(blocks()[i], blocks()[i].sadr(), start_address);
+        if(blocks()[i].empty()) remove_empty_blocks();
       } else {
         // otherwise split it.
         block_type blk;
-        blk.swap(blocks()[i_first]);
-        blocks()[i_first] = blk.get_range(blk.sadr(), start_address);
+        blk.swap(blocks()[i]);
+        blocks()[i] = blk.get_range(blk.sadr(), start_address);
         blk = blk.get_range(end_address, blk.eadr());
         blocks().push_back(blk);
         remove_empty_blocks();
@@ -1161,10 +1177,6 @@ public:
    */
   inline void merge()
   { merge(default_value()); }
-
-  // </editor-fold>
-
-  // <editor-fold defaultstate="collapsed" desc="find">
 
   /**
    * Returns the address of the first byte where the `sequence`
@@ -1234,11 +1246,8 @@ public:
     return eadr(); // Not found
   }
 
-  // </editor-fold>
-
 private:
 
-  // <editor-fold defaultstate="collapsed" desc="static block operations">
   /**
    * Merges blocks. Fills unassigned ranges in between with with `fill_value`.
    * @param block_container_type&& blocks
@@ -1319,32 +1328,30 @@ private:
 
   /**
    * Shrinks a block to a given start/end address
-   * Note: This function does not extend the block.
    * @param block_type& block
    * @param address_type start_address
    * @param address_type end_address
-   * @param value_type fill_value
    * @return block_type
    */
-  static void shrink(block_type& block, address_type start_address, address_type end_address)
+  static void shrink_to(block_type& block, address_type start_address, address_type end_address)
   {
-    if(start_address >= end_address) return;
-    data_type& bytes = block.bytes();
-    if(start_address > block.sadr()) {
-      size_type offset = start_address - block.sadr();
-      size_type i = offset, j = 0;
-      size_type sz = bytes.size();
-      while(offset < sz) bytes[j++] = bytes[i++];
-      bytes.resize(bytes.size() - offset);
-    }
-    if(end_address < block.eadr()) {
-      bytes.resize(end_address - start_address);
+    if(start_address >= end_address) {
+      block.sadr(block.eadr());
+      block.bytes().clear();
+      return;
+    } else {
+      data_type& bytes = block.bytes();
+      const size_type size = ((end_address-start_address) <= bytes.size()) ? (end_address-start_address) : bytes.size();
+      if(start_address > block.sadr()) {
+        const size_type offset = start_address - block.sadr();
+        size_type i = offset, j = 0;
+        while(i < bytes.size()) bytes[j++] = bytes[i++];
+        block.sadr(start_address);
+      }
+      bytes.resize(size);
     }
   }
 
-  // </editor-fold>
-
-  // <editor-fold defaultstate="collapsed" desc="static functions">
   /**
    * Returns a c-string of an error code.
    *
@@ -1378,9 +1385,7 @@ private:
     };
     return (e < sizeof(es)/sizeof(const char*)) ? es[e] : "unknown error";
   };
-  // </editor-fold>
 
-  // <editor-fold defaultstate="collapsed" desc="parse auxiliaries">
   /**
    * Parse a line
    *
@@ -1571,9 +1576,7 @@ private:
     // All ok
     return true;
   }
-  // </editor-fold>
 
-  // <editor-fold defaultstate="collapsed" desc="private auxiliaries">
   /**
    * Error setter
    * @param error_type e
@@ -1615,16 +1618,14 @@ private:
   {
     block_container_type blks;
     blks.swap(blocks_); // now the memory is in blks
-    for(auto &e: blks) {
+    for(auto& e: blks) {
       if(!e.empty()) {
         blocks_.push_back(block_type()); // push fresh instance, and ...
         blocks_.back().swap(e);  // swap the contents.
       }
     }
   }
-  // </editor-fold>
 
-  // <editor-fold defaultstate="collapsed" desc="private static auxiliaries">
   /**
    * Number to hex
    *
@@ -1702,11 +1703,9 @@ private:
     cksum = (~(cksum)) & 0xff;  // complement, only one byte.
     return (value_type) cksum;
   }
-  // </editor-fold>
 
 private:
 
-  // <editor-fold defaultstate="collapsed" desc="instance variables">
   error_type error_;              ///< Current error
   record_type_type type_;         ///< Type of the data lines (S1,S2 or S3)
   address_type start_address_;    ///< Address offset from the S9/S8/S7 address field.
@@ -1716,12 +1715,10 @@ private:
   address_type error_address_;    ///< The address where an error was found
   value_type default_value_;      ///< The value that is read in unset address ranges (e.g. RAM 0x00, FLASH 0xff).
   bool strict_parsing_;           ///< Raises errors if the S-record does not encompass complete information, e.g. if the S0 or S5/S6 is missing.
-  // </editor-fold>
 
 };
 }}
 
-// <editor-fold defaultstate="collapsed" desc="srecord operators">
 /**
  * Stream out --> compose.
  * @param std::ostream&
@@ -1742,12 +1739,9 @@ template <typename V, typename C>
 std::istream& operator>>(std::istream& is, sw::detail::basic_srecord<V,C>& rec)
 { rec.parse(is); return is; }
 
-// </editor-fold>
 
-// <editor-fold defaultstate="collapsed" desc="default specialisation">
 namespace sw {
   typedef detail::basic_srecord<unsigned char> srecord;
 }
-// </editor-fold>
 
 #endif
