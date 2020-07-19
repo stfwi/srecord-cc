@@ -9,6 +9,7 @@ endif
 ifeq ($(DEBUG),1)
 CXXFLAGS+=-O0 -g -D_DEBUG
 else
+CXXFLAGS+=-O3
 LDFLAGS+=-s
 endif
 

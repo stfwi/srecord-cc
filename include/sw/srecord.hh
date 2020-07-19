@@ -117,6 +117,7 @@ public:
     e_parse_mixed_data_line_types,
     e_compose_max_number_of_data_lines_exceeded,
     e_validate_record_type_to_small,
+    e_validate_record_range_exceeded,
     e_validate_no_binary_data,
     e_validate_blocks_unordered,
     e_validate_overlapping_blocks
@@ -878,27 +879,27 @@ public:
   bool validate(bool strict=true)
   {
     if(!good()) return false;
-
     // Check/set address type
     {
-      unsigned type = 1;
+      record_type_type type = type_s1_16bit;
       for(block_type& block: blocks_) {
-        if(block.eadr() > 0x00ffffffu) { type = 3; break; }
-        if(block.eadr() > 0x0000ffffu) { type = 2;        }
+        if(block.eadr() > 0xffffffffu) { return error(e_validate_record_range_exceeded); }
+        if(block.eadr() > 0x00ffffffu) { type = type_s3_32bit; break; }
+        if(block.eadr() > 0x0000ffffu) { type = type_s2_24bit;        }
       }
       if(type_ == type_undefined) {
-        type_ = (record_type_type)type;
+        type_ = type;
       } else if(type_ < type) {
         if(strict) {
           return error(e_validate_record_type_to_small);
         } else {
-          type_ = record_type_type(type);
+          type_ = type;
         }
       }
     }
     // Variable checks
     {
-      if((type_ < 1) || (type_ > 3)) {
+      if((type_ < type_s1_16bit) || (type_ > type_s3_32bit)) {
         return error(e_validate_record_type_to_small);
       }
       if(blocks_.empty()) {
@@ -1378,6 +1379,7 @@ private:
       "[parse] Mixed data types in one record (S1/S2/S3)",
       "[compose] The output has too many data lines for the S5/S6 line data.",
       "[validate] The specified record type (S1/S2/S3) is to small for the needed data address range.",
+      "[validate] The data range exceeds the greatest possible address of an s-record.",
       "[validate] No binary data blocks to write found in a record.",
       "[validate] Unordered data blocks detected",
       "[validate] Overlapping data blocks detected (address range collision)",
