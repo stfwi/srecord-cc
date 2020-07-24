@@ -4,7 +4,7 @@
  * @license BSD (simplified)
  * @author Stefan Wilhelm (stfwi)
  * -----------------------------------------------------------------------------
- * @sw: todo: extend tests.
+ * @sw: todo: extend tests, add fuzzy.
  */
 #include "test.hh"
 #include <sw/srecord.hh>
@@ -162,13 +162,194 @@ void test_push_block()
 
 void test_load_file()
 {
-  srec.clear();
-  test_expect( srecord::load(RESOURCE_DIRECTORY TEST_FILE, srec) );
-  test_expect( !srec.blocks().empty() );
-  test_expect( srec.good() );
-  srec_dump();
+  {
+    srec.clear();
+    test_expect( srecord::load(RESOURCE_DIRECTORY TEST_FILE, srec) );
+    test_expect( !srec.blocks().empty() );
+    test_expect( srec.good() );
+    srec_dump();
+  }
+  {
+    srecord raii = srecord::load(RESOURCE_DIRECTORY TEST_FILE);
+    test_expect( !raii.blocks().empty() );
+  }
+  {
+    srecord raii_fail = srecord::load(RESOURCE_DIRECTORY TEST_FILE ".nonexisting");
+    test_expect( raii_fail.blocks().empty() );
+    test_expect( raii_fail.error() == srecord::e_load_open_failed );
+  }
 }
 
+void test_strict_parsing()
+{
+  // No header
+  {
+    srecord srec;
+    srec.strict_parsing(true);
+    const string data = string("S309FFFFFFFC0200E0FF1C");
+    test_expect( (!srec.parse(data)) && (srec.error() == srecord::e_parse_missing_s0) );
+    if(!srec.good() && (srec.error() != srecord::e_parse_missing_s0)) test_note( srec.error_message() );
+  }
+  // Overlapping data
+  {
+    srecord srec;
+    srec.strict_parsing(true);
+    const string data = string(
+      "S00F000068656C6C6F212020202000003B\n"
+      "S11F00007C0802A6900100049421FFF07C6C1B787C8C23783C6000003863000026\n"
+      "S11F001C4BFFFFE5398000007D83637880010014382100107C0803A64E800020E9\n"
+      "S111003A48656C6C6F20776F726C642E0A0040\n"
+      "S111003848656C6C6F20776F726C642E0A0042\n" // overlapping line, only error when parsing strict.
+      "S9030000FC\n"
+    );
+    test_expect ((!srec.parse(data)) && (srec.error() == srecord::e_validate_overlapping_blocks));
+    if(!srec.good() && (srec.error() != srecord::e_validate_overlapping_blocks)) test_note( srec.error_message() );
+  }
+  // Line count mismatch if S5 is given
+  {
+    srecord srec;
+    srec.strict_parsing(true);
+    const string data = string(
+      "S00F000068656C6C6F212020202000003B\n"
+      "S11F00007C0802A6900100049421FFF07C6C1B787C8C23783C6000003863000026\n"
+      "S11F001C4BFFFFE5398000007D83637880010014382100107C0803A64E800020E9\n"
+      "S111003A48656C6C6F20776F726C642E0A0040\n"
+      "S5030007F5\n" // incorrect line count
+    );
+    test_expect ((!srec.parse(data)) && (srec.error() == srecord::e_parse_line_count_mismatch));
+    if(!srec.good() && (srec.error() != srecord::e_parse_line_count_mismatch)) test_note( srec.error_message() );
+  }
+  // Unacceptable char
+  {
+    srecord srec;
+    srec.strict_parsing(true);
+    const string data = string(
+      "S00F000068656C6C6F212020202000003B\n"
+      "S11F00007C0802A6900100049421FFF07C6C1B787C8C23783C6000003863000026\n"
+      "S11F00007C0802A6900100049421FFF07C6C1B787C8C23783C6000003863000W026\n" // <-- W in the line data range is invalid
+    );
+    test_expect ((!srec.parse(data)) && (srec.error() == srecord::e_parse_unacceptable_character));
+    if(!srec.good() && (srec.error() != srecord::e_parse_unacceptable_character)) test_note( srec.error_message() );
+  }
+  // Checksum
+  {
+    srecord srec;
+    srec.strict_parsing(true);
+    const string data = string(
+      "S00F000068656C6C6F212020202000003B\n"
+      "S11F00007C0802A6900100049421FFF07C6C1B787C8C23783C6000003863000027\n" // 0x26->0x27
+    );
+    test_expect ((!srec.parse(data)) && (srec.error() == srecord::e_parse_chcksum_incorrect));
+    if((!srec.good()) && (srec.error() != srecord::e_parse_chcksum_incorrect)) test_note( srec.error_message() );
+  }
+  // Invalid record type
+  {
+    srecord srec;
+    srec.strict_parsing(true);
+    const string data = string(
+      "S00F000068656C6C6F212020202000003B\n"
+      "SC1F00007C0802A6900100049421FFF07C6C1B787C8C23783C6000003863000026\n" // SC invalid
+    );
+    test_expect((!srec.parse(data)) && (srec.error() == srecord::e_parse_invalid_record_type));
+    if((!srec.good()) && (srec.error() != srecord::e_parse_invalid_record_type)) test_note( srec.error_message() );
+  }
+  // Not starting with S
+  {
+    srecord srec;
+    srec.strict_parsing(true);
+    const string data = string(
+      "S00F000068656C6C6F212020202000003B\n"
+      "A11F00007C0802A6900100049421FFF07C6C1B787C8C23783C6000003863000026\n"
+      "S11F00007C0802A6900100049421FFF07C6C1B787C8C23783C6000003863000026\n"
+    );
+    test_expect((!srec.parse(data)) && (srec.error() == srecord::e_parse_line_not_starting_with_s));
+    if((!srec.good()) && (srec.error() != srecord::e_parse_line_not_starting_with_s)) test_note( srec.error_message() );
+  }
+  // Line length odd
+  {
+    srecord srec;
+    srec.strict_parsing(true);
+    const string data = string("S00F000068656C6C6F21202020200000F3B\n");
+    test_expect((!srec.parse(data)) && (srec.error() == srecord::e_parse_invalid_line_length));
+    if((!srec.good()) && (srec.error() != srecord::e_parse_invalid_line_length)) test_note( srec.error_message() );
+  }
+  // Line too short
+  {
+    srecord srec;
+    srec.strict_parsing(true);
+    const string data = string("S00F0\n");
+    test_expect((!srec.parse(data)) && (srec.error() == srecord::e_parse_invalid_line_length));
+    if((!srec.good()) && (srec.error() != srecord::e_parse_invalid_line_length)) test_note( srec.error_message() );
+  }
+  // Line too long
+  {
+    srecord srec;
+    srec.strict_parsing(true);
+    string data = string("S0");
+    for(auto i=0; i<513; ++i) data += "0";
+    test_expect((!srec.parse(data)) && (srec.error() == srecord::e_parse_invalid_line_length));
+    if((!srec.good()) && (srec.error() != srecord::e_parse_invalid_line_length)) test_note( srec.error_message() );
+  }
+  // Duplicate start address
+  {
+    srecord srec;
+    srec.strict_parsing(true);
+    const string data = string(
+      "S00F000068656C6C6F212020202000003B\n"
+      "S11F00007C0802A6900100049421FFF07C6C1B787C8C23783C6000003863000026\n"
+      "S9030000FC\n"
+      "S9030000FC\n"
+    );
+    test_expect((!srec.parse(data)) && (srec.error() == srecord::e_parse_duplicate_start_address));
+    if((!srec.good()) && (srec.error() != srecord::e_parse_duplicate_start_address)) test_note( srec.error_message() );
+  }
+  // Duplicate line count spec
+  {
+    srecord srec;
+    srec.strict_parsing(true);
+    const string data = string(
+      "S00F000068656C6C6F212020202000003B\n"
+      "S11F00007C0802A6900100049421FFF07C6C1B787C8C23783C6000003863000026\n"
+      "S5030003F9\n"
+      "S5030003F9\n"
+    );
+    test_expect((!srec.parse(data)) && (srec.error() == srecord::e_parse_duplicate_data_count));
+    if((!srec.good()) && (srec.error() != srecord::e_parse_duplicate_data_count)) test_note( srec.error_message() );
+  }
+  // Mixed S1/S2/S3
+  {
+    srecord srec;
+    srec.strict_parsing(true);
+    const string data = string(
+      "S00F000068656C6C6F212020202000003B\n"
+      "S2080010007C0802A6BB\n"
+      "S11F00007C0802A6900100049421FFF07C6C1B787C8C23783C6000003863000026\n"
+    );
+    test_expect((!srec.parse(data)) && (srec.error() == srecord::e_parse_mixed_data_line_types));
+    if((!srec.good()) && (srec.error() != srecord::e_parse_mixed_data_line_types)) test_note( srec.error_message() );
+  }
+}
+
+void test_multi_file_stream()
+{
+  // Test implicit stream abort to support usages like "cat *.s19 *.s28 *.s37 | my-srec-merge > merged.srec"
+  const string content = string(
+    "S00F000068656C6C6F212020202000003B\n"
+    "S11F00007C0802A6900100049421FFF07C6C1B787C8C23783C6000003863000026\n"
+    "S11F001C4BFFFFE5398000007D83637880010014382100107C0803A64E800020E9\n"
+    "S111003A48656C6C6F20776F726C642E0A0040\n"
+  );
+  stringstream ss(content + "\n" + content + "\n\n"); // two srec files in the same stream
+  vector<srecord> records;
+  while(ss.good()) records.push_back(srecord(ss));
+  test_expect( ss.eof() );
+  test_expect( records.size() == 2 );
+  if(records.size() == 2) {
+    test_expect( records.front().dump() == records.back().dump() );
+    test_expect( !records.front().error() );
+    test_expect( !records.back().error() );
+  }
+}
 
 void test()
 {
@@ -178,4 +359,6 @@ void test()
   test_expect_noexcept( test_merge() );
   test_expect_noexcept( test_push_block() );
   test_expect_noexcept( test_load_file() );
+  test_expect_noexcept( test_strict_parsing() );
+  test_expect_noexcept( test_multi_file_stream() );
 }

@@ -49,6 +49,9 @@ int main(int argc, const char** argv)
   // Load and parse from file (convenience wrapper for `parse()` for
   // file streams).
   sw::srecord::load(TESTFILE, srec);
+  // alternatively load returning an instance:
+  // sw::srecord srec = sw::srecord::load(TESTFILE);
+
   #else
   // Parse from stream
   srec.parse(cin);
@@ -96,7 +99,7 @@ int main(int argc, const char** argv)
 
     // Make all independent block to one big block. The gaps
     // are filled with the default value.
-    // Merging is also good if you simply like to `push_bach()`
+    // Merging is also good if you simply like to `push_back()`
     // blocks and then finally make one memory image, where the
     // later blocks overwrite the earlier blocks.
     srec.default_value(0xff);

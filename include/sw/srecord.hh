@@ -7,7 +7,7 @@
  * @ldflags
  * @platform linux, bsd, windows
  * @standard >= c++11
- * @version 1.0
+ * @version 1.1
  *
  * -----------------------------------------------------------------------------
  *
@@ -15,7 +15,7 @@
  *
  * -----------------------------------------------------------------------------
  * +++ BSD license header +++
- * Copyright (c) 2008-2017, Stefan Wilhelm <cerberos@atwillys.de>
+ * Copyright (c) 2008-2020, Stefan Wilhelm <cerberos@atwillys.de>
  * All rights reserved.
  * Redistribution and use in source and binary forms, with or without modification,
  * are permitted provided that the following conditions are met: (1) Redistributions
@@ -65,36 +65,36 @@ public:
    * Binary value of each data word. Should be unsigned char
    * or char / uint8_t/int8_t.
    */
-  typedef ValueType value_type;
+  using value_type = ValueType;
 
   /**
    * RandomAccessContainer of value_types, e.g.
    * vector or deque. Must support random access
    * iteration and index element access.
    */
-  typedef RandomAccessValueContainerType data_type;
+  using data_type = RandomAccessValueContainerType;
 
   /**
    * Type for sizes.
    */
-  typedef size_t size_type;
+  using size_type = size_t;
 
   /**
    * The type for addresses.
    */
-  typedef unsigned long long address_type;
+  using address_type = unsigned long long;
 
   /**
    * The type for storing the "type" of a record,
    * that is 1 for S1 (16bit address), 2 for S2 (24bit)
    * and 3 for S3 (32bit).
    */
-  typedef enum {
+  using record_type_type = enum {
     type_undefined = 0,
-    type_s1_16bit = 1,
-    type_s2_24bit = 2,
-    type_s3_32bit = 3,
-  } record_type_type;
+    type_s1_16bit  = 1,
+    type_s2_24bit  = 2,
+    type_s3_32bit  = 3,
+  };
 
   /**
    * Error type.
@@ -120,7 +120,8 @@ public:
     e_validate_record_range_exceeded,
     e_validate_no_binary_data,
     e_validate_blocks_unordered,
-    e_validate_overlapping_blocks
+    e_validate_overlapping_blocks,
+    e_load_open_failed,
   } error_type;
 
   /**
@@ -370,7 +371,7 @@ public:
   /**
    * Collection of blocks in this record
    */
-  typedef std::vector<block_type> block_container_type;
+  using block_container_type = std::vector<block_type>;
 
 private:
 
@@ -389,7 +390,7 @@ private:
   /**
    * Type for all lines.
    */
-  typedef std::deque<line_type> line_container_type;
+  using line_container_type = std::deque<line_type>;
 
 public:
 
@@ -402,12 +403,20 @@ public:
   { }
 
   /**
-   * c'tor
+   * c'tor, initialized via stream parsing
    */
   explicit inline basic_srecord(std::istream& is) : error_(e_ok), type_(type_undefined),
           start_address_(0), header_(), blocks_(), parser_line_(0), error_address_(0),
           default_value_(0x00), strict_parsing_(false)
   { parse(is); }
+
+  /**
+   * c'tor, initialized via string parsing
+   */
+  explicit inline basic_srecord(const std::string& s) : error_(e_ok), type_(type_undefined),
+          start_address_(0), header_(), blocks_(), parser_line_(0), error_address_(0),
+          default_value_(0x00), strict_parsing_(false)
+  { parse(s); }
 
   /**
    * d'tor
@@ -533,7 +542,7 @@ public:
    * @return void
    */
   inline void type(record_type_type new_type)
-  { type_ = new_type < 4 ? new_type : type_undefined; }
+  { type_ = ((new_type >= type_s1_16bit) && (new_type <= type_s3_32bit)) ? new_type : type_undefined; }
 
   /**
    * Sets the start address of the whole record (written
@@ -614,7 +623,7 @@ public:
    * @return bool
    */
   inline bool parse(const std::string& data)
-  { std::istringstream ss(data); return parse(ss); }
+  { std::istringstream ss(data); return parse(ss, true); }
 
   /**
    * Parse a string.
@@ -622,15 +631,18 @@ public:
    * @return bool
    */
   inline bool parse(std::string&& data)
-  { std::istringstream ss(std::move(data)); return parse(ss); }
+  { std::istringstream ss(std::move(data)); return parse(ss, true); }
 
   /**
    * Parses an input stream.
+   * By default stream reading is aborted when reading a non-empty
+   * line not starting with "S". If `single_file_stream` is `true`,
+   * all lines to the end of stream are forcefully parsed.
    *
    * @param std::istream& is
-   * @bool ignore_checksum_error=false
+   * @bool single_file_stream=false
    */
-  inline bool parse(std::istream& is)
+  inline bool parse(std::istream& is, const bool single_file_stream=false)
   {
     clear();
     std::string line;
@@ -639,11 +651,11 @@ public:
     while(std::getline(is, line)) {
       ++parser_line_;
       std::string s;
-      for(auto e: line) {
+      for(auto e:line) {
         if(!::isspace(e)) s += e;
       }
       if(s.empty()) continue;
-      if(s[0] != 'S' && s[0] != 's') {
+      if((!single_file_stream) && (s[0] != 'S' && s[0] != 's')) {
         auto i = line.length();
         is.putback('\n');
         while(i) is.putback(line[--i]);
@@ -864,9 +876,40 @@ public:
     srec.clear();
     if(!file_path || !file_path[0]) return false;
     std::ifstream fs(file_path);
-    if((!fs.good()) || (!srec.parse(fs))) return false;
+    if((!fs.good()) || (!srec.parse(fs, true))) return false;
     return fs.eof();
   }
+
+  /**
+   * Loads an S-record file (.srec/.s19/.s28/.s37 ...).
+   * Returns a basic_srecord object containing the parsed data.
+   * On file stream error or parse error, the `error()` of the
+   * instance is set accordingly.
+   *
+   * @param const char* file_path
+   * @return basic_srecord
+   */
+  static inline basic_srecord load(const char* file_path)
+  {
+    basic_srecord srec;
+    if(!file_path || !file_path[0]) { srec.error(e_load_open_failed); return srec; }
+    std::ifstream fs(file_path);
+    if(!fs.good()) { srec.error(e_load_open_failed); return srec; }
+    srec.parse(fs, true);
+    return srec;
+  }
+
+  /**
+   * Loads an S-record file (.srec/.s19/.s28/.s37 ...).
+   * Returns a basic_srecord object containing the parsed data.
+   * On file stream error or parse error, the `error()` of the
+   * instance is set accordingly.
+   *
+   * @param std::string file_path
+   * @return basic_srecord
+   */
+  static inline basic_srecord load(std::string file_path)
+  { return load(file_path.c_str()); }
 
   /**
    * Checks if the current "image" saved in the
@@ -883,9 +926,9 @@ public:
     {
       record_type_type type = type_s1_16bit;
       for(block_type& block: blocks_) {
-        if(block.eadr() > 0xffffffffu) { return error(e_validate_record_range_exceeded); }
-        if(block.eadr() > 0x00ffffffu) { type = type_s3_32bit; break; }
-        if(block.eadr() > 0x0000ffffu) { type = type_s2_24bit;        }
+        if(block.eadr() > 0x100000000ull) { return error(e_validate_record_range_exceeded); }
+        if(block.eadr() > 0x001000000ull) { type = type_s3_32bit; break; }
+        if(block.eadr() > 0x000010000ull) { type = type_s2_24bit;        }
       }
       if(type_ == type_undefined) {
         type_ = type;
@@ -978,10 +1021,10 @@ public:
    * overwrites existing blocks. Might merge and rearrange
    * blocks, means drop pointers or references to blocks
    * after using this method.
-   *
    * @param block_type&& block
+   * @return basic_srecord&
    */
-  void set_range(block_type&& block)
+  basic_srecord& set_range(block_type&& block)
   {
     // The easy cases: No existing blocks are affected
     {
@@ -996,10 +1039,9 @@ public:
         blocks().push_back(block);
         reorder(blocks());
         connect_adjacent_blocks();
-        return;
+        return *this;
       }
     }
-
     // The normal cases: Existing blocks are affected. Determmine first and last affected block.
     reorder(blocks());
     size_type i_first = 0;
@@ -1010,7 +1052,6 @@ public:
     while(i_last && !blocks()[i_last].in_range(block.sadr(), block.eadr()) ) {
       --i_last;
     }
-
     // All all blocks except the first and the last will be overwritten anyway.
     for(size_type i = i_first+1; i < i_last; ++i) {
       blocks()[i].bytes().clear();
@@ -1025,6 +1066,7 @@ public:
     remove_empty_blocks();
     reorder(blocks());
     connect_adjacent_blocks();
+    return *this;
   }
 
   /**
@@ -1033,11 +1075,11 @@ public:
    * overwrites existing blocks. Might merge and re-arrange
    * blocks, means drop pointers or references to blocks
    * after using this method.
-   *
    * @param const block_type& block
+   * @return basic_srecord&
    */
-  inline void set_range(const block_type& block)
-  { block_type blk = block; set_range(std::move(blk)); }
+  inline basic_srecord& set_range(const block_type& block)
+  { block_type blk = block; return set_range(std::move(blk)); }
 
   /**
    * Copies the contents of given byte data to the appropriate
@@ -1047,9 +1089,10 @@ public:
    * after using this method.
    * @param address_type address
    * @param const data_type& data
+   * @return basic_srecord&
    */
-  inline void set_range(address_type address, data_type&& data)
-  { block_type blk; blk.sadr(address); blk.bytes(std::move(data)); set_range(std::move(blk)); }
+  inline basic_srecord& set_range(address_type address, data_type&& data)
+  { block_type blk; blk.sadr(address); blk.bytes(std::move(data)); return set_range(std::move(blk)); }
 
   /**
    * Copies the contents of given byte data to the appropriate
@@ -1059,9 +1102,33 @@ public:
    * after using this method.
    * @param address_type address
    * @param const data_type& data
+   * @return basic_srecord&
    */
-  inline void set_range(address_type address, const data_type& data)
-  { block_type blk(address, data); set_range(blk); }
+  inline basic_srecord& set_range(address_type address, const data_type& data)
+  { block_type blk(address, data); return set_range(blk); }
+
+  /**
+   * Copies the contents of given byte data to the appropriate
+   * address. Extends the instance address range if needed,
+   * overwrites existing blocks. Might merge and re-arrange
+   * blocks, means drop pointers or references to blocks
+   * after using this method.
+   * @tparam typename Container
+   * @param address_type address
+   * @param const Container& data
+   * @return basic_srecord&
+   */
+  template<typename Container>
+  inline typename std::enable_if<std::is_same<typename Container::value_type, value_type>::value, basic_srecord&>
+  ::type set_range(address_type address, const Container& data)
+  {
+    if(data.empty()) return *this;
+    auto bytes = data_type();
+    bytes.reserve(data.size());
+    for(auto& e:data) bytes.push_back(e);
+    set_range(std::move(bytes));
+    return *this;
+  }
 
   /**
    * Copies the contents of given byte data to the appropriate
@@ -1077,11 +1144,12 @@ public:
   inline typename std::enable_if<std::is_same<typename Container::value_type, value_type>::value,void>
   ::type set_range(address_type address, const Container& data)
   {
-    if(data.empty()) return;
+    if(data.empty()) return *this;
     auto bytes = data_type();
     bytes.reserve(data.size());
     for(auto& e:data) bytes.push_back(e);
     set_range(std::move(bytes));
+    return *this;
   }
 
   /**
@@ -1090,10 +1158,11 @@ public:
    * to blocks after using this method.
    * @param address_type start_address
    * @param address_type end_address
+   * @return basic_srecord&
    */
-  void remove_range(address_type start_address, address_type end_address)
+  basic_srecord& remove_range(address_type start_address, address_type end_address)
   {
-    if((start_address >= end_address) || blocks().empty()) return;
+    if((start_address >= end_address) || blocks().empty()) return *this;
     size_type i_first = blocks().size();
     size_type i;
     for(i = 0; i < blocks().size(); ++i) {
@@ -1102,7 +1171,7 @@ public:
         break;
       }
     }
-    if(i_first >= blocks().size()) return;
+    if(i_first >= blocks().size()) return *this;
     size_type i_last = i_first;
     for(i = i_first; i < blocks().size(); ++i) {
       if(!blocks()[i].in_range(start_address, end_address)) break;
@@ -1155,29 +1224,34 @@ public:
       remove_empty_blocks();
       reorder(blocks());
     }
+    return *this;
   }
 
   /**
-   * Connects all blocks of this instance to one block,
-   * applying a `fill_value` in unassigned ranges.
+   * Connects all blocks of this instance to one block, applying a `fill_value`
+   * in unassigned ranges. Overlapping blocks implicitly overwrite, where the
+   * overlapping contents of later blocks overwrite the overlapping ranges of
+   * earlier blocks.
    * @param value_type fill_value
-   * @return void
+   * @return basic_srecord&
    */
-  inline void merge(value_type fill_value)
+  inline basic_srecord& merge(value_type fill_value)
   {
     block_container_type blks;
     blocks_.swap(blks);
     blocks_.push_back(connect(std::move(blks), fill_value));
+    return *this;
   }
 
   /**
-   * Connects all blocks of this instance to one block,
-   * applying the instance `default_value()` to fill
-   * unassigned ranges.
-   * @return void
+   * Connects all blocks of this instance to one block, applying the instance
+   * `default_value()` to fill unassigned ranges. Overlapping blocks implicitly
+   * overwrite, where the overlapping contents of later blocks overwrite the
+   * overlapping ranges of earlier blocks.
+   * @return basic_srecord&
    */
-  inline void merge()
-  { merge(default_value()); }
+  inline basic_srecord& merge()
+  { return merge(default_value()); }
 
   /**
    * Returns the address of the first byte where the `sequence`
@@ -1192,7 +1266,6 @@ public:
     if(sequence.empty() || blocks().empty() || ((start_address < sadr()) && ((start_address+seq_size) > eadr()))) {
       return eadr();
     }
-
     // As all exported methods connect blocks, it is assured that a
     // sequence cannot spread accross multiple blocks.
     size_type i_block = 0;
@@ -1202,10 +1275,8 @@ public:
     if(i_block >= blocks().size()) {
       return eadr();
     }
-
     // Initial in-block vector index.
     size_type i = (start_address > blocks()[i_block].sadr()) ? (start_address - blocks()[i_block].sadr()) : 0;
-
     // Block iteration
     while(i_block < blocks().size()) {
       // Analyse block ...
@@ -1383,6 +1454,7 @@ private:
       "[validate] No binary data blocks to write found in a record.",
       "[validate] Unordered data blocks detected",
       "[validate] Overlapping data blocks detected (address range collision)",
+      "[load] Opening file failed",
       ""
     };
     return (e < sizeof(es)/sizeof(const char*)) ? es[e] : "unknown error";
@@ -1401,11 +1473,12 @@ private:
     std::transform(line.begin(), line.end(), line.begin(), ::toupper);
     if(line.find_first_not_of("0123456789ABCDEFS") != std::string::npos) {
       return error(e_parse_unacceptable_character);
-    } else if((line[0] != 'S') || (line[1] < '0') || (line[1] > '9')) {
+    } else if(line[0] != 'S') {
       return error(e_parse_line_not_starting_with_s);
+    } else if((line[1] < '0') || (line[1] > '9')) {
+      return error(e_parse_invalid_record_type);
     } else if((line.length() & 0x01) || (line.length() < 10) || (line.length() > 514)) {
-      // Line length not even , or
-      // Less than minimum of 10 === "SxLLAAAACC", L=length bytes, A=address bytes, C=cksum
+      // Line length not even, or less than minimum of 10 === "SxLLAAAACC", L=length bytes, A=address bytes, C=cksum
       return error(e_parse_invalid_line_length);
     } else {
       // HEX->blob
@@ -1506,74 +1579,70 @@ private:
   {
     if(!good()) return false;
     // Collect and check line data
-    {
-      if(lines.empty()) {
-        return error(e_parse_missing_data_lines);
-      } else if(lines.front().type != 0) {
-        if(strict_parsing()) return error(e_parse_missing_s0);
-      } else {
-        header_ = lines.front().bytes; // Checked for multiple headers already in parse().
-        lines.pop_front();
+    if(lines.empty()) {
+      return error(e_parse_missing_data_lines);
+    } else if(lines.front().type != 0) {
+      if(strict_parsing()) return error(e_parse_missing_s0);
+    } else {
+      header_ = lines.front().bytes; // Checked for multiple headers already in parse().
+      lines.pop_front();
+    }
+    record_type_type type = type_undefined;  // S1/S2/S3
+    bool have_start_address = false;  // S7/S8/S9
+    long spec_count = 0; // S5/S6
+    long count = 0; // Check for S5/S6
+    for(auto& e: lines) {
+      if(e.type < 4) {
+        type = e.type;
+        break;
       }
-
-      record_type_type type = type_undefined;  // S1/S2/S3
-      bool have_start_address = false;  // S7/S8/S9
-      long spec_count = 0; // S5/S6
-      long count = 0; // Check for S5/S6
-
-      for(auto& e: lines) {
-        if(e.type < 4) {
-          type = e.type;
-          break;
+    }
+    if(!type) {
+      return error(e_parse_missing_data_lines);
+    }
+    type_ = type;
+    for(auto e: lines) {
+      if(e.type < 4) {
+        // Data lines (header is out)
+        if((e.type != type) && strict_parsing()) {
+          return error(e_parse_mixed_data_line_types);
         }
-      }
-      if(!type) {
-        return error(e_parse_missing_data_lines);
-      }
-      type_ = type;
-      for(auto e: lines) {
-        if(e.type < 4) {
-          // Data lines (header is out)
-          if((e.type != type) && strict_parsing()) {
-            return error(e_parse_mixed_data_line_types);
+        if((!blocks_.empty()) && (e.address == (blocks_.back().sadr() + blocks_.back().size()))) {
+          for(auto ee: e.bytes) {
+            blocks_.back().bytes().push_back(ee);
           }
-          if((!blocks_.empty()) && (e.address == (blocks_.back().sadr() + blocks_.back().size()))) {
-            for(auto ee: e.bytes) {
-              blocks_.back().bytes().push_back(ee);
-            }
-          } else {
-            block_type block;
-            block.sadr(e.address);
-            block.bytes() = e.bytes;
-            if(blocks_.empty() || (block.sadr() >= blocks_.back().sadr())) {
-              blocks_.push_back(block); // vector: push is fast.
-            } else {
-              typename block_container_type::iterator it = blocks_.begin();
-              while(it != blocks_.end() && (block.sadr() >= it->sadr())) ++it;
-              blocks_.insert(it, block);
-            }
-          }
-          ++count;
-        } else if(e.type < 7) {
-          // Line count lines
-          if(spec_count) {
-            return error(e_parse_duplicate_data_count);
-          }
-          spec_count = (long) e.address;
         } else {
-          // Start addresses S7/S8/S9
-          // S<0, S4, S>9 already filtered out, S0/1/2/3 and S5/6 handled above --> S7/8/9 left.
-          if(have_start_address && strict_parsing()) {
-            return error(e_parse_duplicate_start_address);
+          block_type block;
+          block.sadr(e.address);
+          block.bytes() = e.bytes;
+          if(blocks_.empty() || (block.sadr() >= blocks_.back().sadr())) {
+            blocks_.push_back(block); // vector: push is fast.
+          } else {
+            typename block_container_type::iterator it = blocks_.begin();
+            while(it != blocks_.end() && (block.sadr() >= it->sadr())) ++it;
+            blocks_.insert(it, block);
           }
-          have_start_address = true;
-          if((e.type != 10-type) && strict_parsing()) error(e_parse_startaddress_vs_data_type_mismatch);
-          start_address_ = e.address;
         }
+        ++count;
+      } else if(e.type < 7) {
+        // Line count lines
+        if(spec_count) {
+          return error(e_parse_duplicate_data_count);
+        }
+        spec_count = (long) e.address;
+      } else {
+        // Start addresses S7/S8/S9
+        // S<0, S4, S>9 already filtered out, S0/1/2/3 and S5/6 handled above --> S7/8/9 left.
+        if(have_start_address && strict_parsing()) {
+          return error(e_parse_duplicate_start_address);
+        }
+        have_start_address = true;
+        if((e.type != 10-type) && strict_parsing()) return error(e_parse_startaddress_vs_data_type_mismatch);
+        start_address_ = e.address;
       }
-      if(spec_count && (spec_count != count)) {
-        return error(e_parse_line_count_mismatch);
-      }
+    }
+    if(spec_count && (spec_count != count)) {
+      return error(e_parse_line_count_mismatch);
     }
     // All ok
     return true;
@@ -1681,27 +1750,27 @@ private:
    * Container of numbers to hex
    *
    * @tparam typename ContainerType
-   * @param ContainerType blob
+   * @param const ContainerType bin
    * @return std::string
    */
   template <typename ContainerType>
-  static inline std::string tohex(const ContainerType& blob) {
+  static inline std::string tohex(const ContainerType& bin) {
     std::string s;
-    for(auto e: blob) s += numtohex(e);
+    for(auto e:bin) s += numtohex(e);
     return s;
   }
 
   /**
    * Calculate the line checksum
    * @tparam ContainerType
-   * @param ContainerType& bin
+   * @param const ContainerType& bin
    * @return value_type
    */
   template <typename ContainerType>
-  static value_type cksum(ContainerType& bin)
+  static value_type cksum(const ContainerType& bin)
   {
     unsigned cksum = 0;
-    for(auto e: bin) cksum += e;
+    for(auto e:bin) cksum += e;
     cksum = (~(cksum)) & 0xff;  // complement, only one byte.
     return (value_type) cksum;
   }
@@ -1741,9 +1810,11 @@ template <typename V, typename C>
 std::istream& operator>>(std::istream& is, sw::detail::basic_srecord<V,C>& rec)
 { rec.parse(is); return is; }
 
-
+/**
+ * Default specialisation.
+ */
 namespace sw {
-  typedef detail::basic_srecord<unsigned char> srecord;
+  using srecord = detail::basic_srecord<unsigned char>;
 }
 
 #endif
