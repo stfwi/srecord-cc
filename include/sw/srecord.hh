@@ -612,7 +612,7 @@ public:
    * if no address is affected by an error.
    * @return address_type
    */
-  inline unsigned long error_address() const
+  inline address_type error_address() const
   { return error_address_; }
 
 public:
