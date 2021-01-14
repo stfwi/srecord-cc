@@ -46,6 +46,10 @@
 #include <vector>
 #include <deque>
 #include <type_traits>
+#if(__cplusplus >= 201700L)
+#include <optional>
+#include <cstdint>
+#endif
 
 #ifdef WITH_SRECORD_DEBUG
   #undef SRECORD_DEBUG
@@ -581,9 +585,10 @@ public:
    */
   inline std::string header_str() const
   {
-    std::string s;
-    for(auto c: header_) { if(!c) break; else s += (char) c; }
-    while(!s.empty() && ::isspace(s[s.length()-1])) s.resize(s.length()-1);
+    std::string s(header_.size(), ' ');
+    std::transform(header_.begin(), header_.end(), s.begin(), [](value_type c){ return char((c<32)?' ':c); });
+    s.erase(0, s.find_first_not_of(" "));
+    s.erase(s.find_last_not_of(" ")+1);
     return s;
   }
 
@@ -594,9 +599,10 @@ public:
   inline void header_str(std::string s)
   {
     header_.clear();
-    if(s.length() > 25) s = s.substr(0, 25); // no string.resize()
-    for(auto c: s) header_.push_back((value_type)c);
-    if(header_.size() < 10) header_.resize(10);
+    if(s.length() > 91) s = s.substr(0, 91); // no string.resize()
+    for(auto c:s) header_.push_back(value_type(c));
+    header_.push_back(0);
+    if(header_.size() < 10) header_.resize(10, 0);
   }
 
   /**
@@ -1317,6 +1323,105 @@ public:
     }
     return eadr(); // Not found
   }
+
+  #if(__cplusplus >= 201700L)
+
+  enum class endianess_type { little_endian, big_endian };
+
+  /**
+   * Returns the endianess interpretet value from a given start address, or
+   * an empty optional if the range of the given address and the data type
+   * is smaller than the data type.
+   * @tparam IntegralType
+   * @param address_type address
+   * @param endianess_type endianess
+   * @return std::optional<ValueType>
+   */
+  template <typename IntegralType>
+  std::optional<IntegralType> get(address_type address, endianess_type endianess) const
+  {
+    static_assert(std::is_integral<IntegralType>::value, "get<> only for integers, use <cstdint> types.");
+    using itype = IntegralType;
+    constexpr size_type size = sizeof(itype);
+    if constexpr (size==1) {
+      (void)endianess;
+      for(const auto& block:blocks()) {
+        if((address >= block.sadr()) && (address < block.eadr())) {
+          return std::optional<itype>(block.bytes()[size_type(address-block.sadr())]);
+        }
+      }
+      return std::optional<itype>();
+    } else {
+      auto r = std::optional<itype>();
+      auto ranges = get_ranges(address, address+size);
+      auto data = data_type();
+      if(ranges.empty()) {
+        return r;
+      } else if(ranges.size()==1) {
+        data.swap(ranges.front().bytes());
+      } else {
+        for(const auto b:ranges[0].bytes()) data.push_back(b);
+        for(size_type i=1; i<ranges.size(); ++i) {
+          if(ranges[i-1].eadr() != ranges[i].sadr()) return r; // there is a gap.
+          for(const auto b:ranges[i].bytes()) data.push_back(b);
+        }
+      }
+      if(data.size() != size) return r;
+      auto value = itype(0);
+      switch(endianess) {
+        case endianess_type::big_endian: {
+          for(size_type i=0; i<size; ++i) value = (value<<8)|itype(data[i]);
+          r = value;
+          break;
+        }
+        case endianess_type::little_endian: {
+          for(auto i=int(size)-1; i>=0; --i) value = (value<<8)|itype(data[i]);
+          r = value;
+          break;
+        }
+        default:
+          break;
+      }
+      return r;
+    }
+  }
+
+  /**
+   * Writes the bytes at a specified address according to a given value with a given endianess.
+   * @tparam IntegralType
+   * @param address_type address
+   * @param endianess_type endianess
+   * @param IntegralType value
+   * @return basic_srecord&
+   */
+  template <typename IntegralType>
+  basic_srecord& set(address_type address, endianess_type endianess, const IntegralType value)
+  {
+    static_assert(std::is_integral<IntegralType>::value, "set<> only for integers, use <cstdint> types.");
+    using itype = typename std::decay<IntegralType>::type;
+    constexpr size_type size = sizeof(itype);
+    data_type data(size, 0);
+    if constexpr (size==1) {
+      (void)endianess;
+      data[0] = static_cast<typename data_type::value_type>(value);
+    } else {
+      itype val = value;
+      for(auto i=int(size)-1; i>=0; --i) {
+        data[i] = typename data_type::value_type(val & 0xff);
+        val >>= 8;
+      }
+      switch(endianess) {
+        case endianess_type::little_endian:
+          std::reverse(data.begin(), data.end());
+          break;
+        default:
+          break;
+      }
+    }
+    return set_range(address, data);
+  }
+
+  #endif
 
 private:
 
