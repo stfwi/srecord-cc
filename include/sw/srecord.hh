@@ -998,8 +998,16 @@ public:
   {
     block_type block;
     block_container_type blocks = get_ranges(start_address, end_address);
+    bool overwrite_sadr = false; ///< will be set true if we need to force a start_address
+    if(blocks.size() == 0)
+    {
+        overwrite_sadr = true; // we must force a start address since we have none in blocks
+    }
     block = connect(std::move(blocks), fill_value);
-    block.sadr(start_address); // in case get_ranges() was empty
+    if(overwrite_sadr)
+    {
+        block.sadr(start_address); // in case get_ranges() was empty
+    }
     extend(block, start_address, end_address, fill_value);
     return block;
   }
