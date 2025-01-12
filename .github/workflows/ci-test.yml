@@ -19,4 +19,4 @@ jobs:
       - name: Check if example compiles
         run: make example
       - name: Run tests
-        run: make test CXX=${{ matrix.compiler }} STD=${{ matrix.cxxstd }}
+        run: make test CXX=${{ matrix.compiler }} CXX_STD=${{ matrix.cxxstd }} PRINT_RESULTS=1 WITH_ANSI_COLORS=1

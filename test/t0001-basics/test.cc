@@ -13,14 +13,6 @@
 #include <string>
 #include <sstream>
 
-#ifndef RESOURCE_DIRECTORY
-#define RESOURCE_DIRECTORY "res/"
-#endif
-
-#ifndef TEST_FILE
-#define TEST_FILE "test0.s19"
-#endif
-
 #define srec_dump() { stringstream sss; srec.dump(sss); test_comment(sss.str()); }
 #define range_dump(RNG) { stringstream sss; sss<<"Range(sadr:0x"<<std::hex << long(rng.sadr()) << ", size:" << std::dec << long(rng.size()) << "):\n"; (RNG).dump(sss); test_comment(sss.str()); }
 
@@ -117,6 +109,7 @@ void test_range_get()
       }
       return n;
     #else
+      (void)rng;
       test_note("Skipped range value checks (std>=c++17)");
       return 0;
     #endif
@@ -319,26 +312,6 @@ void test_push_block()
   srec_dump();
 }
 
-void test_load_file()
-{
-  {
-    srec.clear();
-    test_expect( srecord::load(RESOURCE_DIRECTORY TEST_FILE, srec) );
-    test_expect( !srec.blocks().empty() );
-    test_expect( srec.good() );
-    srec_dump();
-  }
-  {
-    srecord raii = srecord::load(RESOURCE_DIRECTORY TEST_FILE);
-    test_expect( !raii.blocks().empty() );
-  }
-  {
-    srecord raii_fail = srecord::load(RESOURCE_DIRECTORY TEST_FILE ".nonexisting");
-    test_expect( raii_fail.blocks().empty() );
-    test_expect( raii_fail.error() == srecord::e_load_open_failed );
-  }
-}
-
 void test_strict_parsing()
 {
   // No header
@@ -510,15 +483,15 @@ void test_multi_file_stream()
   }
 }
 
-void test()
+void test(const vector<string>& args)
 {
+  (void)args;
   test_expect_noexcept( test_parse_example_s19() );
   test_expect_noexcept( test_compose() );
   test_expect_noexcept( test_range_get() );
   test_expect_noexcept( test_range_get_set() );
   test_expect_noexcept( test_merge() );
   test_expect_noexcept( test_push_block() );
-  test_expect_noexcept( test_load_file() );
   test_expect_noexcept( test_strict_parsing() );
   test_expect_noexcept( test_multi_file_stream() );
 }

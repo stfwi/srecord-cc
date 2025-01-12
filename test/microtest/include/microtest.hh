@@ -1,6 +1,6 @@
 /**
  * @package de.atwillys.cc.swl
- * @license BSD (simplified)
+ * @license MIT
  * @author Stefan Wilhelm (stfwi)
  * @version 1.3
  * @platform linux, bsd, windows
@@ -135,33 +135,37 @@
  * [FAIL] 4 of 9 checks failed, 0 warnings.        <-- summary
  *
  * -----------------------------------------------------------------------------
- * +++ BSD license header +++
- * Copyright (c) 2012-2023, Stefan Wilhelm (stfwi, <cerbero s@atwilly s.de>)
- * All rights reserved.
- * Redistribution and use in source and binary forms, with or without modification,
- * are permitted provided that the following conditions are met: (1) Redistributions
- * of source code must retain the above copyright notice, this list of conditions
- * and the following disclaimer. (2) Redistributions in binary form must reproduce
- * the above copyright notice, this list of conditions and the following disclaimer
- * in the documentation and/or other materials provided with the distribution.
- * (3) Neither the name of atwillys.de nor the names of its contributors may be
- * used to endorse or promote products derived from this software without specific
- * prior written permission. THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS
- * AND CONTRIBUTORS "AS IS" AND VAR EXPRESS OR IMPLIED WARRANTIES, INCLUDING,
- * BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
- * A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER
- * OR CONTRIBUTORS BE LIABLE FOR VAR DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
- * EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT
- * OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
- * INTERRUPTION) HOWEVER CAUSED AND ON VAR THEORY OF LIABILITY, WHETHER IN CONTRACT,
- * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN VAR
- * WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH
- * DAMAGE.
+ * +++ MIT License header +++
+ *
+ * Copyright (c) 2012-2023 Stefan Wilhelm (wile)
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
  * -----------------------------------------------------------------------------
  */
+// clang-format off
+// Warnings reviewed, no issues. The test harness has intentionally mutable global variables, the magic numbers are
+// not really magic, macros are still needed for the file/line information of the test_** functions, C-arrays for
+// compat down to c++11, pointer arithmetic false positive when handling `argv[i]` and `envv[i]`, same with array
+// index warning. Array-to-pointer-decay is a FP when using normal std::forward. no-lint is:
+// NOLINTBEGIN(*-global-variables, *-magic-numbers, *-macro-usage, *-avoid-c-arrays, *-pointer-arithmetic, *-pro-bounds-constant-array-index, *-to-pointer-decay)
 #ifndef SW_MICROTEST_HH
 #define SW_MICROTEST_HH
-#define WITH_ANSI_COLORS
+
 #include <sstream>
 #include <iostream>
 #include <string>
@@ -203,14 +207,14 @@
 //------------------------------------------------------------------------------------------
 
 // Use ANSI colors for TTY output (fail red, warn yellow, pass green, etc.)
-#ifdef WITH_ANSI_COLORS
+#if defined(WITH_MICROTEST_ANSI_COLORS) || defined(WITH_ANSI_COLORS)
   #define MICROTEST_UTEST_ANSI_COLORS (true)
 #else
   #define MICROTEST_UTEST_ANSI_COLORS (false)
 #endif
 
 // Don't log passes, only infos, warnings, and fails.
-#ifdef MICROTEST_WITHOUT_PASS_LOGS
+#if defined(MICROTEST_WITHOUT_PASS_LOGS) || defined(WITHOUT_MICROTEST_PASS_LOGS)
   #define MICROTEST_UTEST_OMIT_PASS_LOGS (true)
 #else
   #define MICROTEST_UTEST_OMIT_PASS_LOGS (false)
@@ -284,14 +288,11 @@
 
 /**
  * Initialize the test run, print build context information, and
- * conditionally enable ANSI coloring if allowed (WITH_ANSI_COLORS
+ * conditionally enable ANSI coloring if allowed (WITH_MICROTEST_ANSI_COLORS
  * defined and the output stream STDOUT is a TTY/console).
  * @see `WITH_MICROTEST_MAIN`
  */
-#define test_initialize() { \
-  ::sw::utest::test::ansi_colors((MICROTEST_UTEST_ANSI_COLORS) && ::sw::utest::test::istty()); \
-  ::sw::utest::test::buildinfo(__FILE__, __LINE__); \
-}
+#define test_initialize() { ::sw::utest::test::stream(std::cout); ::sw::utest::test::ansi_colors((MICROTEST_UTEST_ANSI_COLORS) && ::sw::utest::test::istty()); ::sw::utest::test::buildinfo(__FILE__, __LINE__); }
 
 /**
  * Print build context information.
@@ -404,6 +405,54 @@
 #define test_expect_ne(A, B) ::sw::utest::test::check_ne(A, B, __FILE__, __LINE__, #A, #B)
 
 /**
+ * Registers a passed check if `A>B`, a failed check on `!(A>B)` (operator>()
+ * match), and prints the file+line, the expression, and the value information
+ * accordingly.
+ * @tparam T1
+ * @tparam T2
+ * @param T1&& A
+ * @param T1&& B
+ * @return bool
+ */
+#define test_expect_gt(A, B) ::sw::utest::test::check_gt(A, B, __FILE__, __LINE__, #A, #B)
+
+/**
+ * Registers a passed check if `A<B`, a failed check on `!(A<B)` (operator<()
+ * match), and prints the file+line, the expression, and the value information
+ * accordingly.
+ * @tparam T1
+ * @tparam T2
+ * @param T1&& A
+ * @param T1&& B
+ * @return bool
+ */
+#define test_expect_lt(A, B) ::sw::utest::test::check_lt(A, B, __FILE__, __LINE__, #A, #B)
+
+/**
+ * Registers a passed check if `A>=B`, a failed check on `!(A>=B)` (operator>=()
+ * match), and prints the file+line, the expression, and the value information
+ * accordingly.
+ * @tparam T1
+ * @tparam T2
+ * @param T1&& A
+ * @param T1&& B
+ * @return bool
+ */
+#define test_expect_ge(A, B) ::sw::utest::test::check_ge(A, B, __FILE__, __LINE__, #A, #B)
+
+/**
+ * Registers a passed check if `A<=B`, a failed check on `!(A<=B)` (operator<=()
+ * match), and prints the file+line, the expression, and the value information
+ * accordingly.
+ * @tparam T1
+ * @tparam T2
+ * @param T1&& A
+ * @param T1&& B
+ * @return bool
+ */
+#define test_expect_le(A, B) ::sw::utest::test::check_le(A, B, __FILE__, __LINE__, #A, #B)
+
+/**
  * Registers a passed check if the given expression throws,
  * otherwise a failed check is registered. The result value
  * of the expression itself is ignored.
@@ -412,7 +461,7 @@
  */
 #define test_expect_except(...) { \
   try { \
-    (__VA_ARGS__); \
+    (void)(__VA_ARGS__); \
     (::sw::utest::test::fail(__FILE__, __LINE__, #__VA_ARGS__, " | Exception was expected" )); \
   } catch(const std::exception& e) { \
     (::sw::utest::test::pass(__FILE__, __LINE__, std::string( \
@@ -432,7 +481,7 @@
  */
 #define test_expect_noexcept(...) { \
   try { \
-    ;(__VA_ARGS__); \
+    (void)(__VA_ARGS__); \
     (::sw::utest::test::pass(__FILE__, __LINE__, #__VA_ARGS__)); \
   } catch(const std::exception& e) { \
     (::sw::utest::test::fail(__FILE__, __LINE__, std::string( \
@@ -521,7 +570,7 @@ namespace sw { namespace utest {
   static inline std::string to_string(const FloatingPoint val, size_t precision_digits)
   {
     auto ss = std::stringstream(); // --> std::format(). For compat still iostream.
-    ss.precision(precision_digits);
+    ss.precision(std::streamsize(precision_digits));
     ss << val;
     return ss.str();
   }
@@ -585,7 +634,7 @@ namespace sw { namespace utest {
       {
         #define str(x) #x
         #define s(x) str(x)
-        #if defined (__GNUC__)
+        #if defined (__GNUC__) && !defined(__clang__)
         #define comp "gcc (" s(__GNUC__) "." s(__GNUC_MINOR__) "." s(__GNUC_PATCHLEVEL__) ")"
         #elif defined (__clang__)
         #define comp "clang (" s(__clang_major__) "." s(__clang_minor__) "." s(__clang_patchlevel__) ")"
@@ -716,7 +765,12 @@ namespace sw { namespace utest {
        */
       static void ansi_colors(bool enable) noexcept
       {
-        ansi_colors_ = enable;
+        #ifdef WITH_MICROTEST_ANSI_COLORS_FORCED
+          (void)enable;
+          ansi_colors_ = true;
+        #else
+          ansi_colors_ = enable;
+        #endif
         #ifdef __WINDOWS__
         {
           #ifndef ENABLE_VIRTUAL_TERMINAL_PROCESSING
@@ -825,6 +879,66 @@ namespace sw { namespace utest {
       }
 
       /**
+       * Passes if operator>() yields true, fails otherwise.
+       * Note: Expects `a_code` and `b_code` to be guaranteed non-`nullptr`.
+       */
+      template<typename T1, typename T2>
+      static bool check_gt(const T1& a, const T2& b, const char* file, int line, const char* a_code, const char* b_code)
+      {
+        using namespace std;
+        if(a > b) {
+          return pass(file, line, std::string(a_code), " > ", std::string(b_code), "   (", a, " > ", b, ")");
+        } else {
+          return fail(file, line, std::string(a_code), " > ", std::string(b_code), "   (", a, " <= ", b, ")");
+        }
+      }
+
+      /**
+       * Passes if operator<() yields true, fails otherwise.
+       * Note: Expects `a_code` and `b_code` to be guaranteed non-`nullptr`.
+       */
+      template<typename T1, typename T2>
+      static bool check_lt(const T1& a, const T2& b, const char* file, int line, const char* a_code, const char* b_code)
+      {
+        using namespace std;
+        if(a < b) {
+          return pass(file, line, std::string(a_code), " < ", std::string(b_code), "   (", a, " < ", b, ")");
+        } else {
+          return fail(file, line, std::string(a_code), " < ", std::string(b_code), "   (", a, " >= ", b, ")");
+        }
+      }
+
+      /**
+       * Passes if operator>=() yields true, fails otherwise.
+       * Note: Expects `a_code` and `b_code` to be guaranteed non-`nullptr`.
+       */
+      template<typename T1, typename T2>
+      static bool check_ge(const T1& a, const T2& b, const char* file, int line, const char* a_code, const char* b_code)
+      {
+        using namespace std;
+        if(a >= b) {
+          return pass(file, line, std::string(a_code), " >= ", std::string(b_code), "   (", a, " >= ", b, ")");
+        } else {
+          return fail(file, line, std::string(a_code), " >= ", std::string(b_code), "   (", a, " < ", b, ")");
+        }
+      }
+
+      /**
+       * Passes if operator<=() yields true, fails otherwise.
+       * Note: Expects `a_code` and `b_code` to be guaranteed non-`nullptr`.
+       */
+      template<typename T1, typename T2>
+      static bool check_le(const T1& a, const T2& b, const char* file, int line, const char* a_code, const char* b_code)
+      {
+        using namespace std;
+        if(a <= b) {
+          return pass(file, line, std::string(a_code), " <= ", std::string(b_code), "   (", a, " <= ", b, ")");
+        } else {
+          return fail(file, line, std::string(a_code), " <= ", std::string(b_code), "   (", a, " > ", b, ")");
+        }
+      }
+
+      /**
        * Print a comment
        * @param const std::string& file
        * @param int line
@@ -863,7 +977,7 @@ namespace sw { namespace utest {
           *os_ << (ansi_colors() ? "\033[0;31m[FAIL]\033[0m" : "[FAIL]") << " " << num_fails_ << " of " << num_checks_ << " checks failed, " << num_warns_ << " warnings." << std::endl;
         }
         unsigned long n = num_fails_;
-        return n > 99 ? 99 : n;
+        return int((n > 99ul) ? (99ul) : (n));
       }
 
       /**
@@ -922,7 +1036,7 @@ namespace sw { namespace utest {
       {
         static const char* caption_colors[5] = { "\033[0;32m", "\033[0;31m", "\033[0;33m", "\033[0;37m", "\033[0;34m" };
         static const char* color_reset = "\033[0m";
-        what = what > static_cast<unsigned>(osout_info) ? static_cast<unsigned>(osout_fail) : what;
+        what = (what > static_cast<unsigned>(osout_info)) ? static_cast<unsigned>(osout_fail) : what;
         const char *color_tag_s="", *color_tag_e="", *color_file_s="", *color_file_e="", *color_end="";
         if(ansi_colors()) {
           color_tag_s = caption_colors[what];
@@ -975,7 +1089,7 @@ namespace sw { namespace utest {
     template <typename T> std::atomic<unsigned long> microtest<T>::num_checks_(0);
     template <typename T> std::atomic<unsigned long> microtest<T>::num_fails_(0);
     template <typename T> std::atomic<unsigned long> microtest<T>::num_warns_(0);
-    template <typename T> std::ostream* microtest<T>::os_ = &std::cout;
+    template <typename T> std::ostream* microtest<T>::os_ = nullptr;
     template <typename T> std::mutex microtest<T>::iolock_;
     template <typename T> bool microtest<T>::ansi_colors_(!!(MICROTEST_UTEST_ANSI_COLORS));
     template <typename T> bool microtest<T>::omit_passes_(!!(MICROTEST_UTEST_OMIT_PASS_LOGS));
@@ -984,7 +1098,6 @@ namespace sw { namespace utest {
   typedef detail::microtest<> test;
 
 }}
-
 
 /***
  * Random value and container generation.
@@ -1032,7 +1145,8 @@ namespace sw { namespace utest {
       { rnd(r, 0, max); }
 
       /**
-       * Random for floating point types, uniform distribution, single value request.
+       * Random for floating point types, uniform distribution, single
+       * value request. Values between 0 and 1
        * @param T& r
        */
       template <typename R>
@@ -1044,7 +1158,8 @@ namespace sw { namespace utest {
       { rnd(r, 0, 1); }
 
       /**
-       * Random for integral types, uniform distribution, min to max, single value request.
+       * Random for integral types, uniform distribution, min to max (max inclusive
+       * interval [min,max]), single value request.
        * @param T& r
        * @param T min
        * @param T max
@@ -1270,6 +1385,9 @@ namespace sw { namespace utest {
       return a;
     }
 
+    #define test_sequence_vector ::sw::utest::sequence_vector
+    #define test_sequence_array ::sw::utest::sequence_array
+
   }}
 #endif
 
@@ -1287,8 +1405,8 @@ namespace sw { namespace utest {
   int main(int argc, char* argv[], char* envv[])
   {
     test_initialize();
-    for(size_t i=1; (i<size_t(argc)) && (argv[i]); ++i) { testenv_argv.push_back(argv[i]); }
-    for(size_t i=0; envv[i]; ++i) { testenv_envv.push_back(envv[i]); }
+    for(size_t i=1; (i<size_t(argc)) && (argv[i]!=nullptr); ++i) { testenv_argv.push_back(argv[i]); }
+    for(size_t i=0; envv[i]!=nullptr; ++i) { testenv_envv.push_back(envv[i]); }
     test(testenv_argv);
     return test_summary();
   }
@@ -1474,4 +1592,6 @@ namespace sw { namespace utest {
   }}
 #endif
 
+// NOLINTEND(*-global-variables, *-magic-numbers, *-macro-usage, *-avoid-c-arrays, *-pointer-arithmetic, *-pro-bounds-constant-array-index, *-to-pointer-decay)
+// clang-format on
 #endif

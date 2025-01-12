@@ -1,34 +1,73 @@
 #
 # srecord-cc makefile.
 #
-CXX=g++
-STD=c++17
-CXXFLAGS=-W -Wall -Wextra -pedantic -Werror -g
-INCLUDES=-I./include
+TOOLCHAIN=
 
-.PHONY: all clean mrproper dist example test default
+# Compiler and dependency selection
+CXX=$(TOOLCHAIN)g++
+LD=$(CXX)
+CXX_STD=c++17
+FLAGSCXX=-std=$(CXX_STD) -W -Wall -Wextra -pedantic
+FLAGSCXX+=-I./include
+SCM_COMMIT:=$(shell git log --pretty=format:%h -1 2>/dev/null || echo 0000000)
+BUILD_DIRECTORY=build
 
-default: test
+# make command line overrides from the known terminologies (CXXFLAGS, LDFLAGS)
+# without completely replacing the previous settings.
+FLAGSCXX+=$(FLAGS)
+FLAGSCXX+=$(CXXFLAGS)
+FLAGSLD+=$(LDFLAGS)
 
-all: clean | example test
+# Pick windows or unix-like
+ifeq ($(OS),Windows_NT)
+ BUILDDIR:=./$(BUILD_DIRECTORY)
+ BINARY_EXTENSION=.exe
+ LIBS+=
+else
+ BUILDDIR:=./$(BUILD_DIRECTORY)
+ BINARY_EXTENSION=.elf
+ LIBS+=-lm -lrt
+endif
 
-dist:
-	@echo "This library has no compiled distribution files, include <sw/srecord.hh> directly."
+#---------------------------------------------------------------------------------------------------
+# make targets
+#---------------------------------------------------------------------------------------------------
+.PHONY: default clean all test mrproper help example
+
+default:
+	@$(MAKE) -j test
 
 clean:
-	@rm -rf ./build
+	-@$(MAKE) test-clean
+	-@rm -rf $(BUILDDIR)
 
 mrproper: clean
 
-test:
-	@echo "[make] Building and running tests ..."
-	@mkdir -p build
-	$(CXX) test/src/test.cc -o build/test -std=$(STD) $(CCFLAGS) $(INCLUDES) $(LDFLAGS)
-	@cp -r test/res build/
-	@cd ./build && ./test
+all: clean
+	@$(MAKE) test-clean
+	@mkdir -p $(BUILDDIR)
+	@$(MAKE) -j test BUILD_DIRECTORY=$(BUILD_DIRECTORY)/std11 CXX_STD=c++11 TOOLCHAIN=$(TOOLCHAIN)
+	@$(MAKE) -j test BUILD_DIRECTORY=$(BUILD_DIRECTORY)/std14 CXX_STD=c++14 TOOLCHAIN=$(TOOLCHAIN)
+	@$(MAKE) -j test BUILD_DIRECTORY=$(BUILD_DIRECTORY)/std17 CXX_STD=c++17 TOOLCHAIN=$(TOOLCHAIN)
+	@$(MAKE) -j test BUILD_DIRECTORY=$(BUILD_DIRECTORY)/std20 CXX_STD=c++20 TOOLCHAIN=$(TOOLCHAIN)
 
 example:
 	@echo "[make] Building and running example ..."
-	@mkdir -p build
-	$(CXX) test/src/example.cc -o build/example -std=$(STD) $(CCFLAGS) $(INCLUDES) $(LDFLAGS)
-	@./build/example test/res/example.s19
+	@mkdir -p $(BUILDDIR)/example
+	@$(CXX) test/example/example.cc -o $(BUILDDIR)/example/example -std=$(CXX_STD) $(FLAGSCXX) $(FLAGSLD)
+	@cp -f test/example/example.s19 $(BUILDDIR)/example/example.s19
+	@./$(BUILDDIR)/example/example $(BUILDDIR)/example/example.s19
+
+help:
+	@echo "Usage: make [ clean all test example ]"
+	@echo ""
+	@echo " - test:           Build test binaries, run all tests that have changed."
+	@echo " - example:        Build and run example binaries."
+	@echo " - clean:          Clean binaries, temporary files and tests."
+	@echo " - all:            Run tests for standards c++11, c++14, c++17, c++20"
+	@echo ""
+
+include test/testenv.mk
+include test/sanitize.mk
+
+#--
