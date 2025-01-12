@@ -10,12 +10,13 @@ on:
 jobs:
   Makefile-test-run-linux:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        compiler: [g++-13, clang++-17]
+        cxxstd: [c++11,c++14,c++17,c++20]
     steps:
-      - run: echo "Triggered by \"${{ github.event_name }}\", runner OS \"${{ runner.os }}\"."
-      - name: Check out \"${{ github.repository }}\", branch \"${{ github.ref }}\."
-        uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - name: Check if example compiles
         run: make example
       - name: Run tests
-        run: make test
-      - run: echo "Job status ${{ job.status }}."
+        run: make test CXX=${{ matrix.compiler }} STD=${{ matrix.cxxstd }}
