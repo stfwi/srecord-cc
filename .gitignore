@@ -22,7 +22,5 @@
 .metadata
 .vscode
 nbproject
-/test/bin
-/cli/*.exe
-/cli/srecord
-/cli/dev.cc
+/build
+/test/tmp

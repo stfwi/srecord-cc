@@ -1002,18 +1002,10 @@ public:
    */
   inline block_type get_range(address_type start_address, address_type end_address, value_type fill_value) const
   {
-    block_type block;
     block_container_type blocks = get_ranges(start_address, end_address);
-    bool overwrite_sadr = false; ///< will be set true if we need to force a start_address
-    if(blocks.size() == 0)
-    {
-        overwrite_sadr = true; // we must force a start address since we have none in blocks
-    }
-    block = connect(std::move(blocks), fill_value);
-    if(overwrite_sadr)
-    {
-        block.sadr(start_address); // in case get_ranges() was empty
-    }
+    const bool no_match = blocks.empty();
+    block_type block = connect(std::move(blocks), fill_value);
+    if(no_match) block.sadr(start_address);
     extend(block, start_address, end_address, fill_value);
     return block;
   }

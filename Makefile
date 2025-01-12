@@ -1,31 +1,34 @@
+#
+# srecord-cc makefile.
+#
 CXX=g++
-CXXFLAGS=-Os -std=c++11 -Wall -Wextra -pedantic
-ifeq ($(OS),Windows_NT)
-BINARY=srecord.exe
-CXXFLAGS+=-static -static-libgcc -static-libstdc++
-else
-BINARY=srecord
-endif
-ifeq ($(DEBUG),1)
-CXXFLAGS+=-O0 -g -D_DEBUG
-else
-CXXFLAGS+=-O3
-LDFLAGS+=-s
-endif
+STD=c++17
+CXXFLAGS=-std=${STD} -W -Wall -Wextra -pedantic -Werror -g
+INCLUDES=-I./include
 
-.PHONY: all clean test run
+.PHONY: all clean mrproper dist example test default
 
-all: test
+default: test
 
-test:
-	@cd test; make -s
+all: clean | example test
+
+dist:
+	@echo "This library has no compiled distribution files, include <sw/srecord.hh> directly."
 
 clean:
-	@rm -f cli/*.o cli/$(BINARY)
-	@cd test; make -s clean
+	@rm -rf ./build
 
-run: cli/$(BINARY)
-	@cd cli; ./$(BINARY)
+mrproper: clean
 
-cli/$(BINARY): cli/dev.cc include/sw/srecord.hh
-	@${CXX} -o "$@" "$<" ${CXXFLAGS} ${LDFLAGS} -Iinclude
+test:
+	@echo "[make] Building and running tests ..."
+	@mkdir -p build
+	@$(CXX) test/src/test.cc -o build/test $(CCFLAGS) $(INCLUDES) $(LDFLAGS)
+	@cp -r test/res build/
+	@cd ./build && ./test
+
+example:
+	@echo "[make] Building and running example ..."
+	@mkdir -p build
+	@$(CXX) test/src/example.cc -o build/example $(CCFLAGS) $(INCLUDES) $(LDFLAGS)
+	@./build/example test/res/example.s19

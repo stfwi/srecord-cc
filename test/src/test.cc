@@ -6,7 +6,7 @@
  * -----------------------------------------------------------------------------
  * @sw: todo: extend tests, add fuzzy.
  */
-#include "test.hh"
+#include "testenv.hh"
 #include <sw/srecord.hh>
 #include <iostream>
 #include <fstream>
@@ -22,6 +22,7 @@
 #endif
 
 #define srec_dump() { stringstream sss; srec.dump(sss); test_comment(sss.str()); }
+#define range_dump(RNG) { stringstream sss; sss<<"Range(sadr:0x"<<std::hex << long(rng.sadr()) << ", size:" << std::dec << long(rng.size()) << "):\n"; (RNG).dump(sss); test_comment(sss.str()); }
 
 using namespace std;
 using sw::srecord;
@@ -93,20 +94,178 @@ void test_compose()
   }
 }
 
+void test_range_get()
+{
+  test_info("Range get checks...");
+  // Blocks: Independent, partially adjacent or sparse.
+  {
+    srec.clear();
+    srec.blocks().push_back(mkblock_seq(0x001e, 0x1e, 18));
+    srec.blocks().push_back(mkblock_seq(0x0040, 0x40, 32));
+    srec.blocks().push_back(mkblock_seq(0x0060, 0x60, 16));
+    srec.blocks().push_back(mkblock_seq(0x0075, 0x75, 30));
+    srec_dump();
+  }
+
+  const auto check_range_against_srec = [&](const srecord::block_type& rng) -> size_t {
+    #if(__cplusplus >= 201700L)
+      auto n = size_t(0);
+      auto adr = rng.sadr();
+      for(const auto b:rng.bytes()) {
+        ++n;
+        test_expect_silent((srec.get<uint8_t>(adr++, srecord::endianess_type::big_endian).value_or(0)) == (b));
+      }
+      return n;
+    #else
+      test_note("Skipped range value checks (std>=c++17)");
+      return 0;
+    #endif
+  };
+
+  // Zero-filled at front and back.
+  {
+    test_note("Front and back filled range:");
+    const auto rng = srec.get_range(0x000, 0x100);
+    range_dump(rng);
+    test_expect_eq(rng.sadr(), 0x000u);
+    test_expect_eq(rng.eadr(), 0x100u);
+    test_note(check_range_against_srec(rng) << " byte values checked.");
+  }
+  // Trimmed front, zero filled back.
+  {
+    test_note("Trimmed front, zero filled back:");
+    const auto rng = srec.get_range(0x020, 0x100);
+    range_dump(rng);
+    test_expect_eq(rng.sadr(), 0x020u);
+    test_expect_eq(rng.eadr(), 0x100u);
+    test_note(check_range_against_srec(rng) << " byte values checked.");
+  }
+  // Zero-filled front, trimmed back.
+  {
+    test_note("Zero-filled front, trimmed back:");
+    const auto rng = srec.get_range(0x000, 0x030);
+    range_dump(rng);
+    test_expect_eq(rng.sadr(), 0x000u);
+    test_expect_eq(rng.eadr(), 0x030u);
+    test_note(check_range_against_srec(rng) << " byte values checked.");
+  }
+  // Trimmed front and back.
+  {
+    test_note("Trimmed front and back:");
+    const auto rng = srec.get_range(0x050, 0x060);
+    range_dump(rng);
+    test_expect_eq(rng.sadr(), 0x050u);
+    test_expect_eq(rng.eadr(), 0x060u);
+    test_note(check_range_against_srec(rng) << " byte values checked.");
+  }
+  // Out of range/empty, filled.
+  {
+    test_note("Out of range/empty, filled:");
+    const auto rng = srec.get_range(0x100, 0x110);
+    range_dump(rng);
+    test_expect_eq(rng.sadr(), 0x100u);
+    test_expect_eq(rng.eadr(), 0x110u);
+    test_note(check_range_against_srec(rng) << " byte values checked.");
+  }
+}
+
 void test_range_get_set()
 {
-  srec.clear();
-  srec.blocks().push_back(mkblock_seq(0x0020, 0, 16));
-  srec.blocks().push_back(mkblock_seq(0x0040, 0, 16));
-  srec.blocks().push_back(mkblock_seq(0x0060, 0, 16));
-  srec.blocks().push_back(mkblock_seq(0x0080, 0, 16));
-  srec_dump();
-  srec.set_range(0x0008, mkblock_seq(0x0, 0xaa, 29).bytes());
-  srec_dump();
-  srec.set_range(mkblock_seq(0x0018, 0x44, 0x60));
-  srec_dump();
-  srec.set_range(mkblock_seq(0x0000, 0x00, 0x80));
-  srec_dump();
+  test_info("Range get-set checks...");
+  // Blocks: Independent, 0x20 apart, 0x10 long.
+  {
+    srec.clear();
+    srec.blocks().push_back(mkblock_seq(0x0020, 0, 16));
+    srec.blocks().push_back(mkblock_seq(0x0040, 0, 16));
+    srec.blocks().push_back(mkblock_seq(0x0060, 0, 16));
+    srec.blocks().push_back(mkblock_seq(0x0080, 0, 16));
+    srec_dump();
+  }
+  // Block data pre-check, all blocks have byte sequences 0..15.
+  {
+    test_expect_eq(srec.blocks().front().size(), 16u);
+    for(const auto& blk:srec.blocks()) {
+      auto i = size_t(0);
+      for(const auto b:blk.bytes()) {
+        test_expect_cond_silent(b == i++);
+      }
+    }
+    if(::sw::utest::test::num_fails() > 0) return;
+  }
+  // Block range return values:
+  {
+    test_info("Block range return values:");
+    test_expect_eq(srec.get_ranges(0x00,0x00).size(), 0u);
+    test_expect_eq(srec.get_ranges(0x00,0x20).size(), 0u);    // Note: end = sadr+size+1, this is not in range yet.
+    test_expect_eq(srec.get_ranges(0x00,0x21).size(), 1u);    // This is.
+    test_expect_eq(srec.get_ranges(0x00,0x30).size(), 1u);
+    test_expect_eq(srec.get_ranges(0x00,0x40-1).size(), 1u);
+    test_expect_eq(srec.get_ranges(0x00,0x40).size(), 1u);
+    test_expect_eq(srec.get_ranges(0x00,0x40+1).size(), 2u);
+    test_expect_eq(srec.get_ranges(0x20,0x20+1).size(), 1u);  // First byte of first block in range.
+    test_expect_eq(srec.get_ranges(0x20,0x30).size(), 1u);
+    test_expect_eq(srec.get_ranges(0x20,0x40-1).size(), 1u);
+    test_expect_eq(srec.get_ranges(0x20,0x40).size(), 1u);
+    test_expect_eq(srec.get_ranges(0x20,0x40+1).size(), 2u);
+    test_expect_eq(srec.get_ranges(0x20,0x60).size(), 2u);
+    test_expect_eq(srec.get_ranges(0x20,0x60+1).size(), 3u);
+    test_expect_eq(srec.get_ranges(0x20,0x80).size(), 3u);
+    test_expect_eq(srec.get_ranges(0x20,0x80+1).size(), 4u);
+    test_expect_eq(srec.get_ranges(0x2f,0x80+1).size(), 4u);  // Last byte of first block yet in range ...
+    test_expect_eq(srec.get_ranges(0x30,0x80+1).size(), 3u);  // ... that's behind the first block.
+    test_expect_eq(srec.get_ranges(0x20,0x100).size(), 4u);
+    test_expect_eq(srec.get_ranges(0x20,0x080).size(), 3u);
+    test_expect_eq(srec.get_ranges(0x20,0x100).front().sadr(), 0x20u);
+    test_expect_eq(srec.get_ranges(0x20,0x100).back().sadr(), 0x80u);
+    test_expect_eq(srec.get_ranges(0x20,0x100).back().eadr(), 0x90u);
+    test_expect_eq(srec.get_ranges(0x00,0x100).front().sadr(), 0x20u);
+    test_expect_eq(srec.get_ranges(0x00,0x200).back().eadr(), 0x90u);
+    test_expect_eq(srec.get_ranges(0x80,0x20).size(), 0u);    // sadr > eadr -> no match.
+    test_expect_eq(srec.get_ranges(0x21,0x20).size(), 0u);    // sadr > eadr -> no match.
+  }
+  // Add data at the front, overlapping.
+  {
+    srec.set_range(0x0008, mkblock_seq(0x0, 0xaa, 29).bytes());
+    srec_dump();
+    test_expect_eq(srec.blocks().size(), 4u);  // Still 4 blocks, 1st one altered.
+    test_expect_eq(srec.sadr(), 0x8u);
+    test_expect_eq(srec.eadr(), 0x90u);
+    test_expect_eq(srec.blocks().front().sadr(), 0x8u);
+    test_expect_eq(srec.blocks().front().eadr(), 0x30u);
+    for(size_t i=0; i<29; ++i) test_expect_silent(srec.blocks().front().bytes().at(i) == (0xaa+i));
+    if(::sw::utest::test::num_fails() > 0) return;
+  }
+  // Alter existing range, which will overwrite all existing
+  // ranges except the last.
+  {
+    srec.set_range(mkblock_seq(0x0018, 0x44, 0x60));
+    srec_dump();
+    test_expect_eq(srec.blocks().size(), 2u);
+    test_expect_eq(srec.sadr(), 0x08u); // 0x0008..0x0018 still as before.
+    test_expect_eq(srec.eadr(), 0x90u); // 0x0080..0x0090 still as before.
+    test_expect_eq(srec.blocks().front().sadr(), 0x08u);
+    test_expect_eq(srec.blocks().front().eadr(), 0x78u);
+    for(size_t i=0; i<0x10; ++i) test_expect_silent(srec.get_range(0x8u+i, 0x8u+i+1).bytes().front() == 0xaa+i);
+    for(size_t i=0; i<0x60; ++i) test_expect_silent(srec.get_range(0x18+i, 0x18+i+1).bytes().front() == 0x44+i);
+    #if(__cplusplus >= 201700L)
+      for(size_t i=0; i<0x60; ++i) test_expect_silent(srec.get<uint8_t>(0x18+i, srecord::endianess_type::big_endian).value_or(0) == 0x44+i);
+      for(size_t i=0; i<0x60; ++i) test_expect_silent(srec.get<uint8_t>(0x18+i, srecord::endianess_type::little_endian).value_or(0) == 0x44+i);
+    #endif
+    if(::sw::utest::test::num_fails() > 0) return;
+  }
+  // Alter existing range, this time only one block should remain
+  // due to implicit concatenation of adjacent blocks.
+  {
+    srec.set_range(mkblock_seq(0x0000, 0x00, 0x80));
+    srec_dump();
+    test_expect_eq(srec.blocks().size(), 1u);
+    test_expect_eq(srec.sadr(), 0x00u);
+    test_expect_eq(srec.eadr(), 0x90u);
+    test_expect_eq(srec.blocks().front().sadr(), 0x00u);
+    test_expect_eq(srec.blocks().front().eadr(), 0x90u);
+    for(size_t i=0; i<0x80; ++i) test_expect_silent(srec.get_range(0x00u+i, 0x00u+i+1).bytes().front() == 0x00+i);
+    for(size_t i=0; i<0x10; ++i) test_expect_silent(srec.get_range(0x80u+i, 0x80u+i+1).bytes().front() == 0x00+i);
+  }
 }
 
 void test_merge()
@@ -355,6 +514,7 @@ void test()
 {
   test_expect_noexcept( test_parse_example_s19() );
   test_expect_noexcept( test_compose() );
+  test_expect_noexcept( test_range_get() );
   test_expect_noexcept( test_range_get_set() );
   test_expect_noexcept( test_merge() );
   test_expect_noexcept( test_push_block() );
