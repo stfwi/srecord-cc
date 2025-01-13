@@ -64,7 +64,6 @@ test: $(TEST_BINARIES_SOURCES)
 	@rm -f $(TEST_BINARIES_RESULTS)
  endif
 	@$(MAKE) -j -k test-results | tee $(BUILDDIR)/test/summary.log 2>&1
-	@if grep -e '^\[fail\]' -- $(BUILDDIR)/test/summary.log >/dev/null 2>&1; then echo "[FAIL] Total verdict: At least one test failed."; /bin/false; else echo "[PASS] Total verdict: All tests passed."; fi
  ifneq ($(TEST)$(PRINT_RESULTS),)
   ifneq ($(TEST_BINARIES_RESULTS),)
 	-@echo "[----] Test detail listing:"
@@ -72,6 +71,7 @@ test: $(TEST_BINARIES_SOURCES)
 	-@cat $(TEST_BINARIES_RESULTS) 2>/dev/null
   endif
  endif
+	@if grep -e '^\[fail\]' -- $(BUILDDIR)/test/summary.log >/dev/null 2>&1; then echo "[FAIL] Total verdict: At least one test failed."; /bin/false; else echo "[PASS] Total verdict: All tests passed."; fi
 
 # Actual test compilations and runs, done in parallel if
 # `make -j` is specified.
