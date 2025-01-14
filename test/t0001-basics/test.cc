@@ -27,6 +27,9 @@ typedef sw::srecord::data_type data_type;
 
 srecord srec;
 
+/**
+ * Simple sequential sparse block data generator.
+ */
 block_type mkblock_seq(address_type adr, value_type startval, size_type size)
 {
   block_type blk(adr);
@@ -38,7 +41,7 @@ block_type mkblock_seq(address_type adr, value_type startval, size_type size)
  * @req: parse() shall ignore whitespaces
  * @req: parse() shall ignore character case
  * @req: parse() shall ignore empty lines
- * @req; header_str() shall ignore tailing whitespaces
+ * @req: header_str() shall ignore tailing whitespaces
  */
 void test_parse_example_s19()
 {
@@ -62,12 +65,16 @@ void test_parse_example_s19()
     test_expect(srec.good());
     test_expect(!srec.blocks().front().empty());
     test_expect(srec.blocks().front().sadr() == 0x0000);
-    test_expect(srec.blocks().front().eadr()   == 0x0046);
-    test_expect(srec.blocks().front().size()  == 70);
+    test_expect(srec.blocks().front().eadr() == 0x0046);
+    test_expect(srec.blocks().front().size() == 70);
     test_expect(srec.blocks().front().bytes().size()  == 70);
   }
 }
 
+/**
+ * @req: Composing record into a output stream shall be possible.
+ * @req: Composing record to a string shall be possible.
+ */
 void test_compose()
 {
   srec.clear();
@@ -86,6 +93,9 @@ void test_compose()
   }
 }
 
+/**
+ * @req: Retrieving a connected data range from the record shall be possible (filled with value by argument or record default value).
+ */
 void test_range_get()
 {
   test_info("Range get checks...");
@@ -162,6 +172,10 @@ void test_range_get()
   }
 }
 
+/**
+ * @req: Retrieving a sparse data range from the record shall be possible (with gaps, no gap filling).
+ * @req: Altering record data using start address and byte container shall be possible.
+ */
 void test_range_get_set()
 {
   test_info("Range get-set checks...");
@@ -173,17 +187,14 @@ void test_range_get_set()
     srec.blocks().push_back(mkblock_seq(0x0060, 0, 16));
     srec.blocks().push_back(mkblock_seq(0x0080, 0, 16));
     srec_dump();
-  }
-  // Block data pre-check, all blocks have byte sequences 0..15.
-  {
-    test_expect_eq(srec.blocks().front().size(), 16u);
+    // Block data pre-check, all blocks have byte sequences 0..15.
+    if(!test_expect_cond(srec.blocks().front().size() == 16u)) return;
     for(const auto& blk:srec.blocks()) {
       auto i = size_t(0);
       for(const auto b:blk.bytes()) {
-        test_expect_cond_silent(b == i++);
+        if(!test_expect_cond_silent(b == i++)) return;
       }
     }
-    if(::sw::utest::test::num_fails() > 0) return;
   }
   // Block range return values:
   {
@@ -261,57 +272,202 @@ void test_range_get_set()
   }
 }
 
+/**
+ * @req: Merging sparse record data to one block with data gap filling shall be possible.
+ * @req: Merging sparse record data fill bytes shall be specified as optional parameter, defaulting to the specified record instance default fill value (default:0).
+ * @req: Merging sparse record data shall overwrite overlapping data based on ascending address order (t.m. not based on the ordering of the underlying sparse block data).
+ */
 void test_merge()
 {
-  srec.clear();
-  srec.blocks().push_back(mkblock_seq(0x0020, 0, 16));
-  srec.blocks().push_back(mkblock_seq(0x0030, 0, 16));
-  srec.blocks().push_back(mkblock_seq(0x0040, 0, 16));
-  srec.blocks().push_back(mkblock_seq(0x0080, 0, 16));
-  srec_dump();
-  srec.merge(0xfe);
-  srec_dump();
-}
+  const auto all_equal = [](auto&& container, auto value) {
+    for(const auto c:container) { if(c != static_cast<decltype(c)>(value)) return false; }
+    return true;
+  };
 
-void test_find()
-{
-  srec.clear();
-  srec.blocks().push_back(mkblock_seq(0x0020, 0, 16));
-  srec.blocks().push_back(mkblock_seq(0x0030, 0, 16));
-  srec.blocks().push_back(mkblock_seq(0x0040, 0, 16));
-  srec.blocks().push_back(mkblock_seq(0x0080, 0, 16));
-  srec_dump();
-  data_type seq{125};
-  address_type adr = srec.find(seq, 0x70);
-  if(adr == srec.eadr()) {
-    cout << "Not found." << endl;
-  } else {
-    cout << "Found at: " << hex << adr << endl;
+  // By argument value gap fill
+  {
+    test_note("Merge checks, fill argument 0xfe ...");
+    srec.clear();
+    srec.blocks().push_back(mkblock_seq(0x0020, 0, 16));
+    srec.blocks().push_back(mkblock_seq(0x0030, 0, 16));
+    srec.blocks().push_back(mkblock_seq(0x0050, 0, 16));
+    srec_dump();
+    srec.merge(0xfe);
+    srec_dump();
+    test_expect_eq(srec.blocks().size(), 1u);
+    test_expect_eq(srec.sadr(), 0x0020u);
+    test_expect_eq(srec.eadr(), 0x0050u+16);
+    test_expect(all_equal(srec.get_range(0x40, 0x40+16).bytes(), 0xfe));
+  }
+  // By default value gap fill
+  {
+    test_note("Merge checks, fill with instance default 0xa5 ...");
+    srec.clear();
+    srec.blocks().push_back(mkblock_seq(0x0020, 0, 16));
+    srec.blocks().push_back(mkblock_seq(0x0030, 0, 16));
+    srec.blocks().push_back(mkblock_seq(0x0050, 0, 16));
+    srec_dump();
+    srec.default_value(0xa5);
+    srec.merge();
+    srec.default_value(0);
+    srec_dump();
+    test_expect_eq(srec.blocks().size(), 1u);
+    test_expect_eq(srec.sadr(), 0x0020u);
+    test_expect_eq(srec.eadr(), 0x0050u+16);
+    test_expect(all_equal(srec.get_range(0x40, 0x40+16).bytes(), 0xa5));
+  }
+  // Overwrite order
+  {
+    test_note("Merge checks, overwrite order ...");
+    srec.clear();
+    srec.blocks().push_back(mkblock_seq(0x0030, 0x70, 32));
+    srec.blocks().push_back(mkblock_seq(0x0020, 0x00, 32));
+    srec.blocks().push_back(mkblock_seq(0x0040, 0xa0, 16));
+    srec_dump();
+    srec.default_value(0xa5);
+    srec.merge();
+    srec.default_value(0);
+    srec_dump();
+    test_expect_eq(srec.sadr(), 0x0020u);
+    test_expect_eq(srec.eadr(), 0x0040u+16);
+    if(!test_expect_cond(srec.blocks().size() == 1)) return;
+    // Using block access, srec.get<uint8_t>(adr) as of c++17.
+    test_note("Block byte size: " << int(srec.blocks().front().bytes().size()));
+    if(!test_expect_cond(srec.blocks().front().bytes().size() == 48)) return;
+    test_expect_eq(int(srec.blocks().front().bytes()[0x00]), 0x00);
+    test_expect_eq(int(srec.blocks().front().bytes()[0x10]), 0x70);
+    test_expect_eq(int(srec.blocks().front().bytes()[0x20]), 0xa0);
+    #if(__cplusplus >= 201700L)
+      test_expect_eq(int(srec.get<uint8_t>(0x0020, srecord::endianess_type::big_endian).value_or(0xff)), 0x00);
+      test_expect_eq(int(srec.get<uint8_t>(0x0030, srecord::endianess_type::big_endian).value_or(0xff)), 0x70);
+      test_expect_eq(int(srec.get<uint8_t>(0x0040, srecord::endianess_type::big_endian).value_or(0xff)), 0xa0);
+    #endif
   }
 }
 
+/**
+ * @req: Searching the record for a byte sequence, optionally starting from a specified address, shall be possible.
+ * @req: Searching the record for a byte sequence shall returns the start address of a found byte sequence, or the end address of the record if the sequence was not found.
+ */
+void test_find()
+{
+  test_note("Find byte sequence checks ...");
+  srec.clear();
+  srec.blocks().push_back(mkblock_seq(0x0020, 0x00,  8));
+  srec.blocks().push_back(mkblock_seq(0x0080, 0xa0, 10));
+  srec_dump();
+  test_expect_eq( srec.find(data_type{0}), srec.sadr());
+  test_expect_eq( srec.find(data_type{0x01, 0x02}), 0x0020u+1 );
+  test_expect_eq( srec.find(data_type{0,1,2,3,4,5,6,7}), 0x0020u);
+  test_expect_eq( srec.find(data_type{0,1,2,3,4,5,6,7,8}), srec.eadr());
+  test_expect_eq( srec.find(data_type{0x01, 0x03}), srec.eadr() );
+  test_expect_eq( srec.find(data_type{}), srec.eadr() );
+  test_expect_eq( srec.find(data_type{0x01, 0x02}, 0x0020), 0x0020u+1 );
+  test_expect_eq( srec.find(data_type{0x01, 0x02}, 0x0021), 0x0020u+1 );
+  test_expect_eq( srec.find(data_type{0x01, 0x02}, 0x0022), srec.eadr() );
+}
+
+/**
+ * @req: Removing ranges (defined by start and end address) from the record data shall be possible.
+ */
 void test_remove()
 {
-  srec.clear();
-  srec.blocks().push_back(mkblock_seq(0x0020, 0, 16));
-  srec.blocks().push_back(mkblock_seq(0x0040, 0, 16));
-  srec.blocks().push_back(mkblock_seq(0x0060, 0xcc, 16));
-  srec.blocks().push_back(mkblock_seq(0x0080, 0, 16));
-  srec_dump();
-  srec.remove_range(0x24, 0x28);
-  srec_dump();
+  test_note("Remove range checks ...");
+  {
+    srec.clear();
+    srec.blocks().push_back(mkblock_seq(0x0020, 0, 16));
+    srec.blocks().push_back(mkblock_seq(0x0040, 0, 16));
+    srec.blocks().push_back(mkblock_seq(0x0060, 0xcc, 16));
+    srec.blocks().push_back(mkblock_seq(0x0080, 0, 16));
+    srec_dump();
+    test_expect_eq(srec.blocks().size(), 4u);
+    test_expect_eq(srec.sadr(), 0x0020u);
+    test_expect_eq(srec.eadr(), 0x0090u);
+  }
+  const auto ref_block = srecord(srec).merge().blocks().front();
+  test_expect_eq(ref_block.sadr(), 0x0020u);
+  test_expect_eq(ref_block.eadr(), 0x0090u);
+  test_expect_eq(ref_block.size(), 0x0070u);
+  // Remove before begin / after end / empty range.
+  {
+    srec.remove_range(0x00, 0x20);
+    test_expect_eq(srec.sadr(), ref_block.sadr());
+    test_expect_eq(srec.eadr(), ref_block.eadr());
+    srec.remove_range(0x90, 0x95);
+    test_expect_eq(srec.sadr(), ref_block.sadr());
+    test_expect_eq(srec.eadr(), ref_block.eadr());
+    srec.remove_range(0x20, 0x20);
+    test_expect_eq(srec.sadr(), ref_block.sadr());
+    test_expect_eq(srec.eadr(), ref_block.eadr());
+    srec.remove_range(0x30, 0x10);
+    test_expect_eq(srec.sadr(), ref_block.sadr());
+    test_expect_eq(srec.eadr(), ref_block.eadr());
+  }
+  // Remove from the middle of a block.
+  {
+    srec.remove_range(0x24, 0x28);
+    srec_dump();
+    test_expect_eq(srec.blocks().size(), 5u);
+    test_expect_eq(srec.sadr(), 0x0020u);
+    test_expect_eq(srec.eadr(), 0x0090u);
+    test_expect_eq(srec.blocks().front().sadr(), 0x0020u);
+    test_expect_eq(srec.blocks().front().eadr(), 0x0024u);
+    test_expect_eq(srec.blocks().at(1).sadr(), 0x0028u);
+    test_expect_eq(srec.blocks().at(1).eadr(), 0x0030u);
+    test_expect_eq(srec.blocks().at(2).sadr(), 0x0040u);
+    test_expect_eq(srec.blocks().at(2).eadr(), 0x0050u);
+  }
+  // Remove exact block range at the end.
+  {
+    srec.remove_range(0x80, 0xf0);
+    srec_dump();
+    test_expect_eq(srec.blocks().size(), 4u);
+    test_expect_eq(srec.sadr(), 0x0020u);
+    test_expect_eq(srec.eadr(), 0x0070u);
+  }
+  // Remove at the front.
+  {
+    srec.remove_range(0x20, 0x40);
+    srec_dump();
+    test_expect_eq(srec.blocks().size(), 2u);
+    test_expect_eq(srec.sadr(), 0x0040u);
+    test_expect_eq(srec.eadr(), 0x0070u);
+  }
 }
 
-void test_push_block()
+/**
+ * @req: Direct read/write access to the sparse block data shall be possible.
+ */
+void test_block_data_access()
 {
+  test_info("Direct block access checks ...");
   srec.clear();
   srec.blocks().push_back(mkblock_seq(0x0020, 0, 16));
   srec.blocks().push_back(mkblock_seq(0x0040, 0, 16));
   srec.blocks().push_back(mkblock_seq(0x0060, 0xcc, 16));
   srec.blocks().push_back(mkblock_seq(0x0080, 0, 16));
   srec_dump();
+  if(!test_expect_cond(srec.blocks().size() == 4u)) return;
+  test_expect_eq(srec.blocks()[0].sadr(), 0x0020u);
+  test_expect_eq(srec.blocks().at(1).sadr(), 0x0040u);
+  test_expect_eq(srec.blocks()[2].sadr(), 0x0060u);
+  test_expect_eq(srec.blocks().at(3).sadr(), 0x0080u);
 }
 
+/**
+ * @req: parse() with strict parsing shall fail if no (S0) header is specified.
+ * @req: parse() with strict parsing shall fail if data ranges are overlapping.
+ * @req: parse() with strict parsing shall fail if the specified line count (S5) does not match the read line count.
+ * @req: parse() with strict parsing shall fail if invalid characters are present in the S-record.
+ * @req: parse() with strict parsing shall fail if a line checksum is invalid.
+ * @req: parse() with strict parsing shall fail if a record type definition ("S?" at the line start) is invalid or unknown (no comments etc allowed).
+ * @req: parse() with strict parsing shall fail if a line does not start with a record tag ("S").
+ * @req: parse() with strict parsing shall fail if a line length of the S-record is invalid.
+ * @req: parse() with strict parsing shall fail if a line is longer than 514 characters (aka, exceeds the value range of the S-record line format).
+ * @req: parse() with strict parsing shall fail if a start address duplication is detected (multiple S9).
+ * @req: parse() with strict parsing shall fail if a data size duplication is detected (multiple S5).
+ * @req: parse() with strict parsing shall fail if a multiple address size formats are used (aka only one of S1/S2/S3 allowed).
+ */
 void test_strict_parsing()
 {
   // No header
@@ -462,6 +618,9 @@ void test_strict_parsing()
   }
 }
 
+/**
+ * @req: Parsing strings or streams shall be stopped successfully at blank lines (to enable parsing multiple records in one stream).
+ */
 void test_multi_file_stream()
 {
   // Test implicit stream abort to support usages like "cat *.s19 *.s28 *.s37 | my-srec-merge > merged.srec"
@@ -491,7 +650,9 @@ void test(const vector<string>& args)
   test_expect_noexcept( test_range_get() );
   test_expect_noexcept( test_range_get_set() );
   test_expect_noexcept( test_merge() );
-  test_expect_noexcept( test_push_block() );
+  test_expect_noexcept( test_remove() );
+  test_expect_noexcept( test_find() );
+  test_expect_noexcept( test_block_data_access() );
   test_expect_noexcept( test_strict_parsing() );
   test_expect_noexcept( test_multi_file_stream() );
 }

@@ -1273,9 +1273,9 @@ public:
       return eadr();
     }
     // As all exported methods connect blocks, it is assured that a
-    // sequence cannot spread accross multiple blocks.
+    // sequence cannot spread across multiple blocks.
     size_type i_block = 0;
-    while(i_block < blocks().size() && blocks()[i_block].sadr() < start_address) {
+    while(i_block < blocks().size() && blocks()[i_block].eadr() < start_address) {
       ++i_block;
     }
     if(i_block >= blocks().size()) {
