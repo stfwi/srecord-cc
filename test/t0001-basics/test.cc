@@ -279,8 +279,8 @@ void test_range_get_set()
  */
 void test_merge()
 {
-  const auto all_equal = [](auto&& container, auto value) {
-    for(const auto c:container) { if(c != static_cast<decltype(c)>(value)) return false; }
+  const auto all_equal = [](srecord::data_type container, srecord::value_type value) {
+    for(const auto c:container) { if(c != value) return false; }
     return true;
   };
 
